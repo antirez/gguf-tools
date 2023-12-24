@@ -11,6 +11,86 @@
 
 #include "gguflib.h"
 
+/* ============================ Low level functions ========================= */
+
+/* GGUF value ID to name lookup table. */
+const char *gguf_value_name[] = {
+    "uint8", "int8", "uint16", "int16", "uint32", "int32",
+    "float32", "bool", "string", "array", "uint64", "int64",
+    "float64"
+};
+
+/* GGUF tensor type to features lookup table. */
+struct gguf_tensor_type_features {
+    char *name;
+    uint32_t items_per_block;
+    uint32_t bytes_per_block;
+} gguf_tensor_type_features[] = {
+    {"f32", 1, 4},
+    {"f16", 1, 2},
+    {"q4_0", 32, 18},
+    {"q4_1", 32, 20},
+    {"q4_2 deprecated", 0, 0},
+    {"q4_3 deprecated", 0, 0},
+    {"q5_0", 32, 22},
+    {"q5_1", 32, 24},
+    {"q8_0", 32, 34},
+    {"q8_1", 32, 40},
+    {"q2_k", 256, 82},
+    {"q3_k", 256, 110},
+    {"q4_k", 256, 144},
+    {"q5_k", 256, 176},
+    {"q6_k", 256, 210},
+    {"q8_k", 256, 292},
+};
+
+/* Return the value type name given the type ID. */
+const char *gguf_get_value_type_name(uint32_t type) {
+    if (type >= sizeof(gguf_value_name)/sizeof(char*)) return "unknown";
+    return gguf_value_name[type];
+}
+
+/* Return the tensor type name given the type ID. */
+const char *gguf_get_tensor_type_name(uint32_t type) {
+    if (type >= sizeof(gguf_tensor_type_features)/sizeof(gguf_tensor_type_features[0])) return "unknown";
+    return gguf_tensor_type_features[type].name;
+}
+
+/* Return the tensor type features, or NULL if the type ID is out of range. */
+struct gguf_tensor_type_features *gguf_get_tensor_type_features(uint32_t type) {
+    if (type >= sizeof(gguf_tensor_type_features)/sizeof(gguf_tensor_type_features[0])) return NULL;
+    return &gguf_tensor_type_features[type];
+}
+
+/* Return the length of the value pointed by 'val' of type 'type'.
+ * For the array type the length can't be inferred without consuming
+ * it, so 0 is returned. */
+uint64_t gguf_value_len(uint32_t type, union gguf_value *val) {
+    uint64_t valuelen = 0;
+    switch(type) {
+    case GGUF_VALUE_TYPE_BOOL:
+    case GGUF_VALUE_TYPE_UINT8:
+    case GGUF_VALUE_TYPE_INT8:
+        valuelen = 1; break;
+    case GGUF_VALUE_TYPE_UINT16:
+    case GGUF_VALUE_TYPE_INT16:
+        valuelen = 2; break;
+    case GGUF_VALUE_TYPE_UINT32:
+    case GGUF_VALUE_TYPE_INT32:
+    case GGUF_VALUE_TYPE_FLOAT32:
+        valuelen = 4; break;
+    case GGUF_VALUE_TYPE_UINT64:
+    case GGUF_VALUE_TYPE_INT64:
+    case GGUF_VALUE_TYPE_FLOAT64:
+        valuelen = 8; break;
+    case GGUF_VALUE_TYPE_STRING:
+        valuelen = 8+val->string.len; break;
+    }
+    return valuelen;
+}
+
+/* =============================== GGUF file API ============================ */
+
 /* Open a GGUF file and return a parsing context. */
 gguf_ctx *gguf_init(char *filename) {
     struct stat sb;
@@ -85,6 +165,12 @@ int gguf_get_key(gguf_ctx *ctx, gguf_key *key) {
     return 1;
 }
 
+/* Given an offset or a length, returns the padding needed to align it
+ * to ctx->alignment. */
+uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset) {
+    return (alignment - (offset % alignment)) % alignment;
+}
+
 /* Set the data section offset. This function must be called exactly when
  * all the key-values are consumed, in the context of the first call of
  * gguf_get_tensor(): this way we will be able to return tensor offsets
@@ -102,8 +188,7 @@ void gguf_set_data_offset(gguf_ctx *ctx) {
         offset += 4;            // Skip tensor type.
         offset += 8;            // Skip tensor offset.
     }
-    uint64_t padding =
-        (ctx->alignment - (offset % ctx->alignment)) % ctx->alignment;
+    uint64_t padding = gguf_get_alignment_padding(ctx->alignment,offset);
     ctx->data_off = offset + padding;
 }
 
@@ -154,59 +239,13 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     ctx->off += 8;  // Skip tensor offset.
 
     tensor->offset = ctx->data_off + *offset;
-    tensor->weights = ctx->data + tensor->offset;
+    tensor->weights_data = ctx->data + tensor->offset;
+
+    struct gguf_tensor_type_features *tf;
+    tf = gguf_get_tensor_type_features(tensor->type);
+    uint64_t weights_padding = gguf_get_alignment_padding(tf->items_per_block,tensor->num_weights);
+    tensor->bsize = ((tensor->num_weights+weights_padding) / tf->items_per_block) * tf->bytes_per_block;
     return 1;
-}
-
-const char *gguf_value_name[] = {
-    "uint8", "int8", "uint16", "int16", "uint32", "int32",
-    "float32", "bool", "string", "array", "uint64", "int64",
-    "float64"
-};
-
-const char *gguf_tensor_type_name[] = {
-    "f32", "f16", "q4_0", "q4_1", "q4_2 deprecated", "q4_3 deprecated",
-    "q5_0", "q5_1", "q8_0", "q8_1", "q2_k", "q3_k", "q4_k", "q5_k",
-    "q6_k", "q7_k", "q8_k", "i8", "i16", "i32", "count"
-};
-
-/* Return the value type name given the type ID. */
-const char *gguf_get_value_type_name(uint32_t type) {
-    if (type >= sizeof(gguf_value_name)/sizeof(char*)) return "unknown";
-    return gguf_value_name[type];
-}
-
-/* Return the tensor type name given the type ID. */
-const char *gguf_get_tensor_type_name(uint32_t type) {
-    if (type >= sizeof(gguf_tensor_type_name)/sizeof(char*)) return "unknown";
-    return gguf_tensor_type_name[type];
-}
-
-/* Return the length of the value pointed by 'val' of type 'type'.
- * For the array type the length can't be inferred without consuming
- * it, so 0 is returned. */
-uint64_t gguf_value_len(uint32_t type, union gguf_value *val) {
-    uint64_t valuelen = 0;
-    switch(type) {
-    case GGUF_VALUE_TYPE_BOOL:
-    case GGUF_VALUE_TYPE_UINT8:
-    case GGUF_VALUE_TYPE_INT8:
-        valuelen = 1; break;
-    case GGUF_VALUE_TYPE_UINT16:
-    case GGUF_VALUE_TYPE_INT16:
-        valuelen = 2; break;
-    case GGUF_VALUE_TYPE_UINT32:
-    case GGUF_VALUE_TYPE_INT32:
-    case GGUF_VALUE_TYPE_FLOAT32:
-        valuelen = 4; break;
-    case GGUF_VALUE_TYPE_UINT64:
-    case GGUF_VALUE_TYPE_INT64:
-    case GGUF_VALUE_TYPE_FLOAT64:
-        valuelen = 8; break;
-    case GGUF_VALUE_TYPE_STRING:
-        valuelen = 8+val->string.len; break;
-    }
-    return valuelen;
 }
 
 /* This function can be called after gguf_get_key(), since the context

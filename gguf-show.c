@@ -30,12 +30,13 @@ int main(int argc, char **argv) {
 
     gguf_tensor tensor;
     while (gguf_get_tensor(ctx,&tensor)) {
-        printf("%s tensor %.*s @%llu, %llu weights\n",
+        printf("%s tensor %.*s @%llu, %llu weights, %llu bytes\n",
             gguf_get_tensor_type_name(tensor.type),
             (int)tensor.namelen,
             tensor.name,
             tensor.offset,
-            tensor.num_weights);
+            tensor.num_weights,
+            tensor.bsize);
     }
     return 0;
 }

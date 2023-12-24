@@ -136,9 +136,9 @@ typedef struct {
     uint32_t ndim;                      // Number of dimensions of the tensor.
     uint64_t dim[GGUF_TENSOR_MAX_DIM];  // Dimensions (Eg. [512, 1024, 1, 1]).
     uint64_t offset;                    // Offset from start of file.
-    uint64_t size;                      // Total size in bytes.
+    uint64_t bsize;                     // Total size in bytes.
     uint64_t num_weights;               // Total number of parameters.
-    uint8_t *weights;                   // Pointer to the mmaped file.
+    uint8_t *weights_data;              // Pointer to the mmaped file.
 } gguf_tensor;
 
 /* The context you get after opening a GGUF file with gguf_init(). */
