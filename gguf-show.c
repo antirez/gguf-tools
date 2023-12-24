@@ -176,11 +176,16 @@ struct gguf_print_options {
  *
  * The function is designed to be used as a callback of gguf_do_with_value(). */
 void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *val, uint64_t in_array, uint64_t array_len) {
-    (void) privdata;
+    struct gguf_print_options *po = privdata;
+    if (po && po->max_array_items && in_array > po->max_array_items) {
+        if (in_array-1 == po->max_array_items)
+            printf("... %llu more items", array_len-in_array+1);
+        return;
+    }
 
     switch (type) {
         case GGUF_VALUE_TYPE_ARRAY_START:
-            printf("[(%llu items)",array_len); break;
+            printf("["); break;
         case GGUF_VALUE_TYPE_ARRAY_END:
             printf("]"); break;
         case GGUF_VALUE_TYPE_UINT8:
@@ -220,9 +225,14 @@ void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *
 
 /* Print the current value, including arrays. As a side effect
  * the value will be consumed from the context, that will now point
- * to the next item in the GGUF file. */
-void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val) {
-    gguf_do_with_value(ctx,type,val,NULL,0,0,gguf_print_value_callback);
+ * to the next item in the GGUF file.
+ *
+ * If 'full' is true, in the case of arrays, the whole array is printed,
+ * otherwise just the first few elements. */
+void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int full) {
+    struct gguf_print_options po;
+    po.max_array_items = full ? 0 : 30;
+    gguf_do_with_value(ctx,type,val,&po,0,0,gguf_print_value_callback);
 }
 
 int main(int argc, char **argv) {
@@ -247,7 +257,7 @@ int main(int argc, char **argv) {
     gguf_key key;
     while (gguf_get_key(ctx,&key)) {
         printf("%.*s: [%s] ", (int)key.namelen, key.name, gguf_get_value_type_name(key.type));
-        gguf_print_value(ctx,key.type,key.val);
+        gguf_print_value(ctx,key.type,key.val,0);
         printf("\n");
     }
     return 0;
