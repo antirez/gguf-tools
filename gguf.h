@@ -65,12 +65,6 @@ enum gguf_value_type {
     GGUF_VALUE_TYPE_ARRAY_END = 101
 };
 
-const char *gguf_value_name[] = {
-    "uint8", "int8", "uint16", "int16", "uint32", "int32",
-    "float32", "bool", "string", "array", "uint64", "int64",
-    "float64"
-};
-
 // A string in GGUF.
 struct gguf_string {
     // The length of the string, in bytes.
@@ -126,8 +120,29 @@ typedef struct {
     union gguf_value *val;
 } gguf_key;
 
+#define GGUF_TENSOR_MAX_DIM 8           // Future-proof: actual limit is 4.
 typedef struct {
     const char *name;
     size_t namelen;
-    int type;
-} gguf_value;
+    uint32_t type;                      // Tensor type (enum gguf_tensor_type).
+    uint32_t ndim;                      // Number of dimensions of the tensor.
+    uint64_t dim[GGUF_TENSOR_MAX_DIM];  // Dimensions (Eg. [512, 1024, 1, 1]).
+    uint64_t offset;                    // Offset from start of file.
+    uint64_t size;                      // Total size in bytes.
+    uint64_t num_weights;               // Total number of parameters.
+    uint8_t *weights;                   // Pointer to the mmaped file.
+} gguf_tensor;
+
+typedef struct {
+    int fd;
+    uint8_t *data;  // Memory mapped data.
+    uint64_t size;  // Total file size.
+    struct gguf_header *header;     // GUFF file header info.
+    uint32_t left_kv;               // Number of key-value pairs yet to read.
+    uint32_t left_tensors;          // Number of tensors yet to read.
+    uint64_t off;                   // Offset of the next item to parse.
+    uint64_t data_off;              // Offset of tensor data section. This
+                                    // is only set when all the kv/tensor header
+                                    // entries are processed. Initially 0.
+    uint64_t alignment;             // File data alignment. Default: 32 bytes.
+} gguf_ctx;

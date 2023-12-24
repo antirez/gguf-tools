@@ -7,18 +7,9 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <assert.h>
 
 #include "gguf.h"
-
-typedef struct {
-    int fd;
-    uint8_t *data;  // Memory mapped data.
-    uint64_t size;  // Total file size.
-    struct gguf_header *header;     // GUFF file header info.
-    uint32_t left_kv;               // Number of key-value pairs yet to read.
-    uint32_t left_tensors;          // Number of tensors yet to read.
-    uint64_t off;                   // Offset of the next item to parse.
-} gguf_ctx;
 
 /* Open a GGUF file and return a parsing context. */
 gguf_ctx *gguf_init(char *filename) {
@@ -55,6 +46,8 @@ gguf_ctx *gguf_init(char *filename) {
     ctx->off = sizeof(struct gguf_header);
     ctx->left_kv = ctx->header->metadata_kv_count;
     ctx->left_tensors = ctx->header->tensor_count;
+    ctx->alignment = 32; // Default alighment of GGUF files.
+    ctx->data_off = 0;   // Set later.
     return ctx;
 }
 
@@ -80,13 +73,113 @@ int gguf_get_key(gguf_ctx *ctx, gguf_key *key) {
     key->type = *type;
     ctx->off += 8+str->len+4; // Skip prefixed len + string + type.
     key->val = (void*)(ctx->data+ctx->off);
+
+    /* Update the context with the alignmnet data, if needed. */
+    const char *alignment_key = "general.alignmnet";
+    if (key->type == GGUF_VALUE_TYPE_UINT32 &&
+        key->namelen == strlen(alignment_key) &&
+        memcmp(alignment_key, key->name, key->namelen) == 0)
+    {
+        ctx->alignment = key->val->uint32;
+    }
     return 1;
 }
+
+/* Set the data section offset. This function must be called exactly when
+ * all the key-values are consumed, in the context of the first call of
+ * gguf_get_tensor(): this way we will be able to return tensor offsets
+ * as absolute positions and pointers to the mmapped file. */
+void gguf_set_data_offset(gguf_ctx *ctx) {
+    assert(ctx->left_kv == 0 && ctx->left_tensors == ctx->header->tensor_count);
+
+    uint64_t offset = ctx->off;
+    for (uint32_t j = 0; j < ctx->left_tensors; j++) {
+        struct gguf_string *str = (struct gguf_string*) (ctx->data+offset);
+        offset += 8+str->len;   // Skip prefixed len + string
+        uint32_t *num_dim = (uint32_t*)(ctx->data+offset);
+        offset += 4;            // Skip num dimentions.
+        offset += 8*(*num_dim); // Skip dimensions.
+        offset += 4;            // Skip tensor type.
+        offset += 8;            // Skip tensor offset.
+    }
+    uint64_t padding =
+        (ctx->alignment - (offset % ctx->alignment)) % ctx->alignment;
+    ctx->data_off = offset + padding;
+}
+
+/* Parse the next tensor info data. Returns information into 'tensor'.
+ * The function return value is 1 is a tensor was returned, or 0
+ * if there are no longer tensors to process in this GGUF file or if
+ * there are still key-value pairs to process before getting into the
+ * tensors section.
+ *
+ * When 0 is returned, we are at the end of the file and as a side
+ * effect this function will set the data offset ctx->data_off. */
+int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
+    if (ctx->left_tensors == 0 || ctx->left_kv != 0) return 0;
+
+    /* We want to return tensor data with offsets relative to the start
+     * of the file, so that the user of the API is able to access tensors
+     * as it iterates over them. To do so, we need to perform a fulls
+     * scan if this is the first tensor info we are reading. */
+    if (ctx->data_off == 0) gguf_set_data_offset(ctx);
+
+    ctx->left_tensors--;
+    struct gguf_string *str = (struct gguf_string*) (ctx->data+ctx->off);
+    ctx->off += 8+str->len; // Skip prefixed len + string + type.
+    tensor->namelen = str->len;
+    tensor->name = str->string;
+    uint32_t *num_dim = (uint32_t*) (ctx->data+ctx->off);
+    ctx->off += 4;  // Skip number of dimensions.
+    tensor->ndim = *num_dim;
+    assert(tensor->ndim <= GGUF_TENSOR_MAX_DIM);
+
+    /* Read the dimentions: all the unused dimentions are set to 1. */
+    tensor->num_weights = 1;
+    for (uint32_t j = 0; j < tensor->ndim; j++) {
+        if (j < tensor->ndim) {
+            uint64_t *dim = (uint64_t*) (ctx->data+ctx->off);
+            ctx->off += 8; // Skip dimension size.
+            tensor->dim[j] = *dim;
+            tensor->num_weights *= *dim;
+        } else {
+            tensor->dim[j] = 1;
+        }
+    }
+    uint32_t *type = (uint32_t*) (ctx->data+ctx->off);
+    ctx->off += 4;  // Skip tensor type.
+    tensor->type = *type;
+
+    uint64_t *offset = (uint64_t*) (ctx->data+ctx->off);
+    ctx->off += 8;  // Skip tensor offset.
+
+    tensor->offset = ctx->data_off + *offset;
+    tensor->weights = ctx->data + tensor->offset;
+    return 1;
+}
+
+const char *gguf_value_name[] = {
+    "uint8", "int8", "uint16", "int16", "uint32", "int32",
+    "float32", "bool", "string", "array", "uint64", "int64",
+    "float64"
+};
+
+const char *gguf_tensor_type_name[] = {
+    "f32", "f16", "q4_0", "q4_1", "q4_2 deprecated", "q4_3 deprecated",
+    "q5_0", "q5_1", "q8_0", "q8_1", "q2_k", "q3_k", "q4_k", "q5_k",
+    "q6_k", "q7_k", "q8_k", "i8", "i16", "i32", "count"
+};
 
 /* Return the value type name given the type ID. */
 const char *gguf_get_value_type_name(uint32_t type) {
     if (type >= sizeof(gguf_value_name)/sizeof(char*)) return "unknown";
     return gguf_value_name[type];
+}
+
+/* Return the tensor type name given the type ID. */
+const char *gguf_get_tensor_type_name(uint32_t type) {
+    if (type >= sizeof(gguf_tensor_type_name)/sizeof(char*)) return "unknown";
+    return gguf_tensor_type_name[type];
 }
 
 /* Return the length of the value pointed by 'val' of type 'type'.
@@ -259,6 +352,16 @@ int main(int argc, char **argv) {
         printf("%.*s: [%s] ", (int)key.namelen, key.name, gguf_get_value_type_name(key.type));
         gguf_print_value(ctx,key.type,key.val,0);
         printf("\n");
+    }
+
+    gguf_tensor tensor;
+    while (gguf_get_tensor(ctx,&tensor)) {
+        printf("%s tensor %.*s @%llu, %llu weights\n",
+            gguf_get_tensor_type_name(tensor.type),
+            (int)tensor.namelen,
+            tensor.name,
+            tensor.offset,
+            tensor.num_weights);
     }
     return 0;
 }
