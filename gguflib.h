@@ -1,8 +1,15 @@
-/* This code is adapted from https://github.com/ggerganov/ggml/
- * The changes are copyright (C) 2024 Salvatore Sanfilippo <antirez@gmail.com>
- * See LICENSE for licensing info. */
+/* Copyright (C) 2024 Salvatore Sanfilippo <antirez@gmail.com>
+ * See LICENSE for licensing info.
+ *
+ * GGUF enums / structures are partially adapted
+ * the official GGUF implementation at from https://github.com/ggerganov/ggml/
+ */
+
+#ifndef GGUFLIB_H
 
 #include <stdint.h>
+
+/* ============================ Enums and structures ======================== */
 
 enum gguf_tensor_type {
     GUFF_TYPE_F32  = 0,
@@ -120,6 +127,7 @@ typedef struct {
     union gguf_value *val;
 } gguf_key;
 
+/* Tensor representation in this library API. */
 #define GGUF_TENSOR_MAX_DIM 8           // Future-proof: actual limit is 4.
 typedef struct {
     const char *name;
@@ -133,6 +141,7 @@ typedef struct {
     uint8_t *weights;                   // Pointer to the mmaped file.
 } gguf_tensor;
 
+/* The context you get after opening a GGUF file with gguf_init(). */
 typedef struct {
     int fd;
     uint8_t *data;  // Memory mapped data.
@@ -146,3 +155,20 @@ typedef struct {
                                     // entries are processed. Initially 0.
     uint64_t alignment;             // File data alignment. Default: 32 bytes.
 } gguf_ctx;
+
+/* =============================== Prototypes =============================== */
+
+gguf_ctx *gguf_init(char *filename);
+void gguf_end(gguf_ctx *ctx);
+int gguf_get_key(gguf_ctx *ctx, gguf_key *key);
+int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor);
+const char *gguf_get_value_type_name(uint32_t type);
+const char *gguf_get_tensor_type_name(uint32_t type);
+void gguf_do_with_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val,
+                        void *privdata, uint64_t in_array, uint64_t array_len,
+                        void(*callback)(void *privdata, uint32_t type,
+                                     union gguf_value *val, uint64_t in_array,
+                                     uint64_t array_len));
+void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int full);
+
+#endif
