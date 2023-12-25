@@ -1,7 +1,8 @@
-all: gguf-show
+all: gguf-tools
 
-gguf-show: gguf-show.c gguflib.c gguflib.h
-	$(CC) gguf-show.c gguflib.c -g -ggdb -Wall -W -pedantic -O2 -o gguf-show
+gguf-tools: gguf-tools.c gguflib.c gguflib.h sds.c sds.h sdsalloc.h
+	$(CC) gguf-tools.c gguflib.c sds.c \
+		-g -ggdb -Wall -W -pedantic -O2 -o gguf-tools
 
 clean:
-	rm -rf gguf-show
+	rm -rf gguf-tools

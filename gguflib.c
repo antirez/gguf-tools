@@ -92,8 +92,8 @@ uint64_t gguf_value_len(uint32_t type, union gguf_value *val) {
 /* =============================== GGUF file API ============================ */
 
 /* Open a GGUF file and return a parsing context. */
-gguf_ctx *gguf_init(char *filename) {
-    int fd = open(filename,O_RDWR);
+gguf_ctx *gguf_init(const char *filename) {
+    int fd = open(filename,O_RDWR|O_APPEND);
     if (fd == -1) return NULL;
 
     /* Mapping successful. We can create our context object. */
@@ -232,7 +232,7 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
 
     ctx->left_tensors--;
     struct gguf_string *str = (struct gguf_string*) (ctx->data+ctx->off);
-    ctx->off += 8+str->len; // Skip prefixed len + string + type.
+    ctx->off += 8+str->len; // Skip prefixed len + string.
     tensor->namelen = str->len;
     tensor->name = str->string;
     uint32_t *num_dim = (uint32_t*) (ctx->data+ctx->off);
@@ -388,3 +388,70 @@ void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int f
     gguf_do_with_value(ctx,type,val,&po,0,0,gguf_print_value_callback);
 }
 
+/* ============================= GGUF writing API  ========================== */
+
+/* Create an empty GGUF file with no key-value pairs nor tensors.
+ * The file can be extended by using the APIs to add tensors and
+ * keys.
+ *
+ * On success the context with the file already loaded is returned,
+ * otherwise NULL is returned. */
+gguf_ctx *guff_create(const char *filename) {
+    struct gguf_header hdr;
+    memcpy(&hdr.magic,"GGUF",4);
+    hdr.version = 3;
+    hdr.tensor_count = 0;
+    hdr.metadata_kv_count = 0;
+
+    FILE *fp = fopen(filename,"wx");
+    if (fp == NULL) return NULL;
+    if (fwrite(&hdr,1,sizeof(hdr),fp) != sizeof(hdr)) {
+        fclose(fp);
+        return NULL;
+    }
+    fclose(fp);
+
+    return gguf_init(filename);
+}
+
+/* Low level API to append some key-value data to the GGUF file identified
+ * by the context 'ctx'. It's up to the caller to provide a well-formatted
+ * value of the specified type in 'val'. The len is the raw bytes length of
+ * the specified value. Higher level APIs use this one to create fields with
+ * different numerical values, strings, ...
+ *
+ * On success the function returns 1. Otherwise 0.
+ * The function fails and returns 0 with errno set to EINVAL if the
+ * tensors count in the header is non-zero: we can't append key-value
+ * data after the first tensor was emitted. */
+int gguf_append_kv(gguf_ctx *ctx, const char *keyname, uint64_t keylen, uint32_t type, void *val, uint64_t len) {
+    if (ctx->header->tensor_count != 0) {
+        errno = EINVAL;
+        return 0;
+    }
+    if (write(ctx->fd,&keylen,sizeof(keylen)) != sizeof(keylen)) return 0;
+    if (write(ctx->fd,keyname,keylen) != (ssize_t)keylen) return 0;
+    if (write(ctx->fd,&type,sizeof(type)) != sizeof(type)) return 0;
+    if (write(ctx->fd,val,len) != (ssize_t)len) return 0;
+    gguf_remap(ctx);
+    ctx->header->metadata_kv_count++;
+    return 1;
+}
+
+/* Append tensor metadata (but not the actual tensor weights data) to the
+ * GGUF file identified by 'ctx'. */
+int gguf_append_tensor(gguf_ctx *ctx, const char *tensorname, uint64_t namelen, uint32_t num_dim, uint64_t *dim, uint32_t type, uint64_t offset)
+{
+    if (write(ctx->fd,&namelen,sizeof(namelen)) != sizeof(namelen)) return 0;
+    if (write(ctx->fd,tensorname,namelen) != (ssize_t)namelen) return 0;
+    if (write(ctx->fd,&num_dim,sizeof(num_dim)) != sizeof(num_dim)) return 0;
+    for (uint32_t j = 0; j < num_dim; j++) {
+        if (write(ctx->fd,&dim[j],sizeof(uint64_t)) != sizeof(uint64_t))
+            return 0;
+    }
+    if (write(ctx->fd,&type,sizeof(type)) != sizeof(type)) return 0;
+    if (write(ctx->fd,&offset,sizeof(offset)) != sizeof(offset)) return 0;
+    gguf_remap(ctx);
+    ctx->header->tensor_count++;
+    return 1;
+}
