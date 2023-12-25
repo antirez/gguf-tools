@@ -159,6 +159,8 @@ typedef struct {
 /* =============================== Prototypes =============================== */
 
 gguf_ctx *gguf_init(char *filename);
+int gguf_remap(gguf_ctx *ctx);
+void gguf_rewind(gguf_ctx *ctx);
 void gguf_end(gguf_ctx *ctx);
 int gguf_get_key(gguf_ctx *ctx, gguf_key *key);
 int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor);

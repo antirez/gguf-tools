@@ -93,49 +93,70 @@ uint64_t gguf_value_len(uint32_t type, union gguf_value *val) {
 
 /* Open a GGUF file and return a parsing context. */
 gguf_ctx *gguf_init(char *filename) {
-    struct stat sb;
-    int fd = open(filename,O_RDONLY);
+    int fd = open(filename,O_RDWR);
     if (fd == -1) return NULL;
-    if (fstat(fd,&sb) == -1) {
-        close(fd);
-        return NULL;
-    }
 
-    /* Now that we have an open file and its total size, let's
-     * mmap it. */
-    void *mapped = mmap(0,sb.st_size,PROT_READ,MAP_PRIVATE,fd,0);
-    if (mapped == MAP_FAILED) {
-        close(fd);
+    /* Mapping successful. We can create our context object. */
+    gguf_ctx *ctx = malloc(sizeof(*ctx));
+    memset(ctx,0,sizeof(*ctx));
+    ctx->fd = fd;
+    ctx->alignment = 32; // Default alighment of GGUF files.
+    ctx->data_off = 0;   // Set later.
+    if (gguf_remap(ctx) == 0) {
+        gguf_end(ctx);
         return NULL;
     }
+    gguf_rewind(ctx);
+    return ctx;
+}
+
+/* Set the context to read the first key-value entry in the GGUF
+ * file and then all the rest. Is used when creating a new context
+ * and also when you want to restart scanning the key-value
+ * items in the file. */
+void gguf_rewind(gguf_ctx *ctx) {
+    ctx->off = sizeof(struct gguf_header);
+    ctx->left_kv = ctx->header->metadata_kv_count;
+    ctx->left_tensors = ctx->header->tensor_count;
+}
+
+/* map or re-map the GGUF file inside the context pointers to
+ * header and data, also calculating the file length. This is
+ * used when creating a context, but also after the user write
+ * to the file extending it, and requires to view again the
+ * whole updated file.
+ *
+ * Return 1 on success, 0 on error. */
+int gguf_remap(gguf_ctx *ctx) {
+    struct stat sb;
+
+    /* Unmap if the file was already memory mapped. */
+    if (ctx->data) munmap(ctx->data,ctx->size);
+
+    /* Get the size of the file to map, then map it. */
+    if (fstat(ctx->fd,&sb) == -1) return 0;
+
+    void *mapped = mmap(0,sb.st_size,PROT_READ|PROT_WRITE,MAP_SHARED,ctx->fd,0);
+    if (mapped == MAP_FAILED) return 0;
 
     /* Minimal sanity check... */
     if (sb.st_size < (signed)sizeof(struct gguf_header) ||
         memcmp(mapped,"GGUF",4) != 0)
     {
         errno = EINVAL;
-        return NULL;
+        return 0;
     }
-
-    /* Mapping successful. We can create our context object. */
-    gguf_ctx *ctx = malloc(sizeof(*ctx));
-    ctx->fd = fd;
     ctx->data = mapped;
     ctx->header = mapped;
     ctx->size = sb.st_size;
-    ctx->off = sizeof(struct gguf_header);
-    ctx->left_kv = ctx->header->metadata_kv_count;
-    ctx->left_tensors = ctx->header->tensor_count;
-    ctx->alignment = 32; // Default alighment of GGUF files.
-    ctx->data_off = 0;   // Set later.
-    return ctx;
+    return 1;
 }
 
 /* Cleanup needed after gguf_init(), to terminate the context
  * and cleanup resources. */
 void gguf_end(gguf_ctx *ctx) {
     if (ctx == NULL) return;
-    munmap(ctx->data,ctx->size);
+    if (ctx->data) munmap(ctx->data,ctx->size);
     close(ctx->fd);
     free(ctx);
 }
