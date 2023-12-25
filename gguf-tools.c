@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 #include "gguflib.h"
 
 /* ========================== Utility functions  ============================ */
@@ -126,14 +127,10 @@ int strmatch(const char *pattern, int patternLen,
     return 0;
 }
 
-/* ======================= Main and CLI options parsing ===================== */
+/* ========================== 'show' subcommand ============================= */
 
-int main(int argc, char **argv) {
-    if (argc != 2) {
-        printf("Usage: %s <filename>\n",argv[0]);
-        exit(1);
-    }
-    gguf_ctx *ctx = gguf_init(argv[1]);
+void gguf_tools_show(const char *filename) {
+    gguf_ctx *ctx = gguf_init(filename);
     if (ctx == NULL) {
         perror("Opening GGUF file");
         exit(1);
@@ -141,7 +138,7 @@ int main(int argc, char **argv) {
 
     /* Show general information about the neural network. */
     printf("%s (ver %d): %llu key-value pairs, %llu tensors\n",
-        argv[1],
+        filename,
         (int)ctx->header->version,
         (unsigned long long)ctx->header->metadata_kv_count,
         (unsigned long long)ctx->header->tensor_count);
@@ -164,6 +161,28 @@ int main(int argc, char **argv) {
             tensor.offset,
             tensor.num_weights,
             tensor.bsize);
+    }
+    return;
+}
+
+/* ======================= Main and CLI options parsing ===================== */
+
+void gguf_tools_usage(const char *progname) {
+    printf("Usage: %s <subcommand> [options...]\n"
+           "Subcommands:\n"
+           "  show <filename> -- show GGUF model keys and tensors.\n"
+           "  split-mixtral <id> mixtral.gguf out.gguf -- extract expert.\n"
+           , progname);
+    exit(1);
+}
+
+int main(int argc, char **argv) {
+    if (argc < 3) gguf_tools_usage(argv[0]);
+
+    if (!strcmp(argv[1],"show") && argc == 3) {
+        gguf_tools_show(argv[2]);
+    } else {
+        gguf_tools_usage(argv[0]);
     }
     return 0;
 }

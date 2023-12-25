@@ -332,7 +332,8 @@ void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *
     struct gguf_print_options *po = privdata;
     if (po && po->max_array_items && in_array > po->max_array_items) {
         if (in_array-1 == po->max_array_items)
-            printf("... %llu more items", array_len-in_array+1);
+            printf("... %llu more items of %llu", array_len-in_array+1,
+                                                  array_len);
         return;
     }
 
