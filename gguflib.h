@@ -159,6 +159,7 @@ typedef struct {
 /* =============================== Prototypes =============================== */
 
 gguf_ctx *gguf_init(const char *filename);
+gguf_ctx *gguf_create(const char *filename);
 int gguf_remap(gguf_ctx *ctx);
 void gguf_rewind(gguf_ctx *ctx);
 void gguf_end(gguf_ctx *ctx);
@@ -172,5 +173,9 @@ void gguf_do_with_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val,
                                      union gguf_value *val, uint64_t in_array,
                                      uint64_t array_len));
 void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int full);
+int gguf_append_kv(gguf_ctx *ctx, const char *keyname, uint64_t keylen, uint32_t type, void *val, uint64_t len);
+int gguf_append_tensor(gguf_ctx *ctx, const char *tensorname, uint64_t namelen, uint32_t num_dim, uint64_t *dim, uint32_t type, uint64_t offset);
+int gguf_append_tensor_data(gguf_ctx *ctx, uint64_t offset, void *tensor, uint64_t tensor_size);
+uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset);
 
 #endif

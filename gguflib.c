@@ -306,16 +306,19 @@ void gguf_do_with_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val,
         len = val->array.len;
         //exit(1);
         ctx->off += 4+8; // Skip elements type / array length.
-        callback(privdata,GGUF_VALUE_TYPE_ARRAY_START,val,in_array,len);
+        if (callback)
+            callback(privdata,GGUF_VALUE_TYPE_ARRAY_START,val,in_array,len);
         for (uint64_t j = 0; j < len; j++) {
             val = (union gguf_value*)(ctx->data+ctx->off);
             gguf_do_with_value(ctx,etype,val,privdata,j+1,len,callback);
             /* As a side effect of calling gguf_do_with_value() ctx->off
              * will be update, so 'val' will be set to the next element. */
         }
-        callback(privdata,GGUF_VALUE_TYPE_ARRAY_END,NULL,in_array,len);
+        if (callback)
+            callback(privdata,GGUF_VALUE_TYPE_ARRAY_END,NULL,in_array,len);
     } else {
-        callback(privdata,type,val,in_array,array_len);
+        if (callback)
+            callback(privdata,type,val,in_array,array_len);
         ctx->off += gguf_value_len(type,val);
     }
 }
@@ -397,7 +400,7 @@ void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int f
  *
  * On success the context with the file already loaded is returned,
  * otherwise NULL is returned. */
-gguf_ctx *guff_create(const char *filename) {
+gguf_ctx *gguf_create(const char *filename) {
     struct gguf_header hdr;
     memcpy(&hdr.magic,"GGUF",4);
     hdr.version = 3;
@@ -454,5 +457,37 @@ int gguf_append_tensor(gguf_ctx *ctx, const char *tensorname, uint64_t namelen, 
     if (write(ctx->fd,&offset,sizeof(offset)) != sizeof(offset)) return 0;
     gguf_remap(ctx);
     ctx->header->tensor_count++;
+    return 1;
+}
+
+/* Append tensor data enforcing the GGUF file aligment. The user must specify
+ * an offset that requires no more than ctx.alignemnt-1 padding bytes starting
+ * from the current offset (this means that this function should be called
+ * sequentially for all the tensors we want to store, after we already
+ * computed the right offset for all the tensors). Also the offset must be
+ * aligned. Otherwise the function will fail returning 0. On success, 1 is
+ * returned. The function will take care to add the padding required to
+ * start writing the tensor at the specified offset. */
+int gguf_append_tensor_data(gguf_ctx *ctx, uint64_t offset, void *tensor, uint64_t tensor_size) {
+    char padding_data[1024] = {0};
+    assert(sizeof(padding_data) >= ctx->alignment);
+
+    /* Is the offset aligned? */
+    if (offset % ctx->alignment) {
+        errno = EINVAL;
+        return 0;
+    }
+
+    /* We expect the offset of the context to be already where this tensor
+     * should be stored, minus the padding. */
+    if (offset < ctx->off || offset - ctx->off >= ctx->alignment) {
+        errno = EINVAL;
+        return 0;
+    }
+
+    uint64_t padding = gguf_get_alignment_padding(ctx->alignment,offset);
+    if (write(ctx->fd,padding_data,padding) != (ssize_t)padding) return 0;
+    if (write(ctx->fd,tensor,tensor_size) != (ssize_t)tensor_size) return 0;
+    gguf_remap(ctx);
     return 1;
 }

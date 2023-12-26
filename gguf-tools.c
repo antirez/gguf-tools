@@ -165,6 +165,45 @@ void gguf_tools_show(const char *filename) {
     return;
 }
 
+/* Read a Mixtral MoE model and creates a new non-MoE GGUF file based
+ * on the weights of the expert with id 'expert_id'. */
+void gguf_tools_split_mixtral(int expert_id, const char *mixtral_filename, const char *output_filename) {
+    gguf_ctx *mixtral = gguf_init(mixtral_filename);
+    if (mixtral == NULL) {
+        perror("Opening Mixtral file");
+        exit(1);
+    }
+
+    gguf_ctx *output = gguf_create(output_filename);
+    if (output == NULL) {
+        perror("Opening the output file");
+        exit(1);
+    }
+
+    /* To start, copy all the key value items, excluding the one
+     * related to the experts. */
+    gguf_key key;
+    while (gguf_get_key(mixtral,&key)) {
+        char keybuf[1024];
+        snprintf(keybuf,sizeof(keybuf),"%.*s",(int)key.namelen, key.name);
+
+        int skip = strstr(keybuf,"llama.expert_") != NULL;
+
+        if (!skip)
+            printf("Copying %s\n", keybuf);
+        uint64_t value_start_offset = mixtral->off;
+        void *value = mixtral->data+mixtral->off;
+        // Just consume the value without doing anything with it.
+        gguf_do_with_value(mixtral,key.type,key.val,NULL,0,0,NULL);
+        uint64_t value_len = mixtral->off - value_start_offset;
+
+        // Now append the value to the output model.
+        if (!skip)
+            gguf_append_kv(output,key.name,key.namelen,key.type,value,value_len);
+    }
+    exit(0);
+}
+
 /* ======================= Main and CLI options parsing ===================== */
 
 void gguf_tools_usage(const char *progname) {
@@ -181,6 +220,8 @@ int main(int argc, char **argv) {
 
     if (!strcmp(argv[1],"show") && argc == 3) {
         gguf_tools_show(argv[2]);
+    } else if (!strcmp(argv[1],"split-mixtral") && argc == 5) {
+        gguf_tools_split_mixtral(atoi(argv[2]),argv[3],argv[4]);
     } else {
         gguf_tools_usage(argv[0]);
     }
