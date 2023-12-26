@@ -262,6 +262,13 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     tensor->offset = ctx->data_off + *offset;
     tensor->weights_data = ctx->data + tensor->offset;
 
+    /* To accurately calculate the bytes used by this tensor on the GGUF
+     * file, we need to take into account that quantization methods store
+     * tensors as block of N weights. So first of all we need to understand
+     * the number of padding weights (since the last block may have just
+     * fewer weights stored inside, but still requires to be stored to its full
+     * length). Then we can do the math to see how many blocks we need, and
+     * multiply by the block size to obtain the final total size. */
     struct gguf_tensor_type_features *tf;
     tf = gguf_get_tensor_type_features(tensor->type);
     uint64_t weights_padding = gguf_get_alignment_padding(tf->items_per_block,tensor->num_weights);
