@@ -2,7 +2,10 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <assert.h>
+
 #include "gguflib.h"
+#include "sds.h"
 
 /* ========================== Utility functions  ============================ */
 
@@ -200,6 +203,93 @@ void gguf_tools_split_mixtral(int expert_id, const char *mixtral_filename, const
         // Now append the value to the output model.
         if (!skip)
             gguf_append_kv(output,key.name,key.namelen,key.type,value,value_len);
+    }
+
+    /* Now it's time to copy the tensors. We need to copy all the shared
+     * tensors (between the different experts), but only a set of
+     * expert-specific tensors corresponding to the expert ID the user
+     * wants to extract. */
+    struct tensor_to_copy {
+        sds dest_name;          // Tensor name in the output file.
+        gguf_tensor orig_info;  // Original tensor info.
+        uint64_t dest_offset;   // Destination offset in output file.
+        uint64_t size;          // Tensor total bytes.
+    };
+
+    uint32_t num_tensors = 0;
+    uint32_t max_tensors = 2048;
+
+    struct tensor_to_copy *tensors =
+        malloc(sizeof(struct tensor_to_copy)*max_tensors);
+    if (tensors == NULL) {
+        perror("Allocating tensors info array");
+        exit(1);
+    }
+
+    /* Scan Mixtral tensors looking for the ones we need to copy
+     * in the output model. */
+    gguf_tensor tensor_info;
+    while (gguf_get_tensor(mixtral,&tensor_info)) {
+        assert(num_tensors < max_tensors);
+
+        char tn[1024]; // Tensor name as null terminated string.
+        snprintf(tn,sizeof(tn),"%.*s",(int)tensor_info.namelen, tensor_info.name);
+
+        /* The tensor is a feed-forward tensor? We want to copy only
+         * the ones of our expert ID. */
+        if (strstr(tn,".ffn_") != NULL && strstr(tn,".ffn_norm") == NULL) {
+            char match[32];
+            snprintf(match,sizeof(match),".%d.weight",expert_id);
+            char *match_ptr = strstr(tn,match);
+            if (match_ptr == NULL) {
+                printf("Skipping tensor %s\n", tn);
+                continue; // Skip this tensor.
+            }
+
+            /* We need to remove the .<id>. from the name. */
+            size_t taillen = strlen(match_ptr);
+            memmove(match_ptr,match_ptr+2,taillen+1);
+        }
+
+        /* Create the entry for this tensor. Later we will scan all our
+         * entries and append data to our output tensor. */
+        tensors[num_tensors].dest_name = sdsnew(tn);
+        if (tensors[num_tensors].dest_name == NULL) {
+            perror("Allocating test tensor name");
+            exit(1);
+        }
+        tensors[num_tensors].orig_info = tensor_info;
+        tensors[num_tensors].size = tensor_info.bsize;
+        num_tensors++;
+    }
+
+    /* Now we need to set the offset for our destination tensors. As
+     * we calculate the offsets, we can emit the tensors information
+     * section as well. */
+    uint64_t tensor_off = 0; // Tensor offsets are relative to data section,
+                             // so we start at offset 0.
+    for (uint32_t j = 0; j < num_tensors; j++) {
+        /* Align offset. */
+        tensor_off += gguf_get_alignment_padding(mixtral->alignment,tensor_off);
+        tensors[j].dest_offset = tensor_off;
+        if (gguf_append_tensor_info(output,tensors[j].dest_name,strlen(tensors[j].dest_name),tensors[j].orig_info.ndim,tensors[j].orig_info.dim,tensors[j].orig_info.type,tensor_off) == 0)
+        {
+            perror("Failed to append tensor info");
+            exit(1);
+        }
+        tensor_off += tensors[j].orig_info.bsize;
+    }
+    printf("Output file: after writing tensors info, file size is: %llu\n", output->size);
+
+    /* Finally, append the tensors weights. */
+    for (uint32_t j = 0; j < num_tensors; j++) {
+        printf("Writing tensor %s\n", tensors[j].dest_name);
+        if (gguf_append_tensor_data(output,tensors[j].orig_info.weights_data,
+            tensors[j].orig_info.bsize) == 0)
+        {
+            perror("Failed to append tensor data");
+            exit(1);
+        }
     }
     exit(0);
 }
