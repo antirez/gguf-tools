@@ -10,6 +10,7 @@
 #include <assert.h>
 
 #include "gguflib.h"
+#include "fp16.h"
 
 /* ============================ Low level functions ========================= */
 
@@ -186,6 +187,14 @@ int gguf_get_key(gguf_ctx *ctx, gguf_key *key) {
     return 1;
 }
 
+/* Skip all the key values pairs in the GGUF files to get to the
+ * tensors information segment. */
+void gguf_skip_key_values_section(gguf_ctx *ctx) {
+    gguf_key key;
+    while (gguf_get_key(ctx,&key))
+        gguf_do_with_value(ctx,key.type,key.val,NULL,0,0,NULL);
+}
+
 /* Given an offset or a length, returns the padding needed to align it
  * to ctx->alignment. */
 uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset) {
@@ -219,14 +228,22 @@ void gguf_set_data_offset(gguf_ctx *ctx) {
  * there are still key-value pairs to process before getting into the
  * tensors section.
  *
- * When 0 is returned, we are at the end of the file and as a side
- * effect this function will set the data offset ctx->data_off. */
+ * The first time this function is called, as a side effect it will
+ * set ctx->data_off to return tensors with absolute offsets.
+ * 
+ * When 0 is returned, the tensor name is set to NULL, so that after
+ * a while() loop scanning tensors for a given condition, the caller
+ * can easily understand if the search terminated because the loop
+ * was exit or because all the entries were consumed. */
 int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
-    if (ctx->left_tensors == 0 || ctx->left_kv != 0) return 0;
+    if (ctx->left_tensors == 0 || ctx->left_kv != 0) {
+        tensor->name = NULL;
+        return 0;
+    }
 
     /* We want to return tensor data with offsets relative to the start
      * of the file, so that the user of the API is able to access tensors
-     * as it iterates over them. To do so, we need to perform a fulls
+     * as it iterates over them. To do so, we need to perform a full
      * scan if this is the first tensor info we are reading. */
     if (ctx->data_off == 0) gguf_set_data_offset(ctx);
 
@@ -479,4 +496,37 @@ int gguf_append_tensor_data(gguf_ctx *ctx, void *tensor, uint64_t tensor_size) {
     if (write(ctx->fd,tensor,tensor_size) != (ssize_t)tensor_size) return 0;
     gguf_remap(ctx);
     return 1;
+}
+
+/* ============================ GGUF dequantization ========================= */
+
+/* Convert the specified tensor (quantized or not) into an array of
+ * floats. The array is allocated with malloc(). If the tensor is already
+ * in FP32 floats format, it is just memcpy()-ed to the destination array.
+ *
+ * On OOM, NULL is returned. If the tensor format is not yet supported,
+ * NULL is returned as well, but errno is set to EINVAL. */
+float *gguf_tensor_to_float(gguf_tensor *tensor) {
+    struct gguf_tensor_type_features *tf =
+        gguf_get_tensor_type_features(tensor->type);
+    uint64_t block_size = tf->bytes_per_block;
+    float *f = malloc(tensor->num_weights*sizeof(float));
+    if (tensor->type == GUFF_TYPE_Q8_0) {
+        int8_t *block = (int8_t*)tensor->weights_data;
+        uint64_t i = 0;
+        while(i < tensor->num_weights) {
+            /* For each block get the delta and convert all the
+             * weights in the block. */
+            float delta = from_half(*((uint16_t*)block));
+            for (uint32_t j = 0; j < tf->items_per_block; j++) {
+                f[i++] = block[j+2] * delta; // j+2 to skip the delta bytes.
+                if (i == tensor->num_weights) break;
+            }
+            block += block_size; // Go to the next block.
+        }
+    } else {
+        errno = EINVAL;
+        return NULL;
+    }
+    return f;
 }

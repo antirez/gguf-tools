@@ -178,5 +178,7 @@ int gguf_append_kv(gguf_ctx *ctx, const char *keyname, uint64_t keylen, uint32_t
 int gguf_append_tensor_info(gguf_ctx *ctx, const char *tensorname, uint64_t namelen, uint32_t num_dim, uint64_t *dim, uint32_t type, uint64_t offset);
 int gguf_append_tensor_data(gguf_ctx *ctx, void *tensor, uint64_t tensor_size);
 uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset);
+void gguf_skip_key_values_section(gguf_ctx *ctx);
+float *gguf_tensor_to_float(gguf_tensor *tensor);
 
 #endif

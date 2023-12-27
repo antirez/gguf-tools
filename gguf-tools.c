@@ -3,9 +3,11 @@
 #include <ctype.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 #include "gguflib.h"
 #include "sds.h"
+#include "fp16.h"
 
 /* ========================== Utility functions  ============================ */
 
@@ -310,15 +312,63 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
     exit(0);
 }
 
+void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_t count) {
+    gguf_ctx *ctx = gguf_init(filename);
+    if (ctx == NULL) {
+        perror("Opening GGUF file");
+        exit(1);
+    }
+
+    /* Skip all the key-value pairs. */
+    gguf_skip_key_values_section(ctx);
+
+    /* Look for the tensor with the specified name. */
+    size_t tnamelen = strlen(tname);
+    gguf_tensor tensor;
+    while (gguf_get_tensor(ctx,&tensor)) {
+        if (tensor.namelen != tnamelen ||
+            memcmp(tensor.name,tname,tnamelen)) continue;
+        break; // Matching tensor found!
+    }
+
+    if (tensor.name == NULL) {
+        fprintf(stderr, "A tensor with the specified name was not found\n");
+        exit(1);
+    }
+
+    float *weights = gguf_tensor_to_float(&tensor);
+    if (weights == NULL) {
+        if (errno == EINVAL) {
+            fprintf(stderr,"Unsupported tensor type: %s\n",
+                gguf_get_tensor_type_name(tensor.type));
+        } else {
+            fprintf(stderr,"Out of memory\n");
+        }
+        exit(1);
+    }
+
+    uint64_t j = 0;
+    while (j < tensor.num_weights) {
+        printf("%f, ", weights[j]);
+        j++;
+        if (j % 4 == 0) printf("\n");
+        if (j == count) break;
+    }
+    if (j % 4 != 0) printf("\n");
+    free(weights);
+    return;
+}
+
 /* ======================= Main and CLI options parsing ===================== */
 
 void gguf_tools_usage(const char *progname) {
     printf("Usage: %s <subcommand> [options...]\n"
-           "Subcommands:\n"
-           "  show <filename> -- show GGUF model keys and tensors.\n"
-           "  split-mixtral <ids...> mixtral.gguf out.gguf -- extract expert.\n"
-           "Example:\n"
-           "  split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf\n"
+"Subcommands:\n"
+"  show <filename> -- show GGUF model keys and tensors.\n"
+"  inspect-tensor <filename> <tensor-name> [count] -- show tensor weights.\n"
+"  split-mixtral <ids...> mixtral.gguf out.gguf -- extract expert.\n"
+"Example:\n"
+"  split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf\n"
            , progname);
     exit(1);
 }
@@ -328,6 +378,9 @@ int main(int argc, char **argv) {
 
     if (!strcmp(argv[1],"show") && argc == 3) {
         gguf_tools_show(argv[2]);
+    } else if (!strcmp(argv[1],"inspect-tensor") && (argc == 4 || argc == 5)) {
+        gguf_tools_inspect_weights(argv[2],argv[3],
+                                   argc == 5 ? atoi(argv[4]) : 0);
     } else if (!strcmp(argv[1],"split-mixtral") && argc == 5) {
         int experts[32];
         size_t elen = strlen(argv[2]);
