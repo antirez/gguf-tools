@@ -1,10 +1,15 @@
-#include <stdint.h>
-#include <math.h>
-
-/* This code comes originally from:
+/* Conversion from floats to FP16 and the other way around.
+ * This is useful as in GGUF files we have both FP16 tensors
+ * and quantized blocks where half-precisions floats are used
+ * to store the scaling factor (delta) and other parameters.
+ *
+ * This code comes originally from:
  * https://github.com/Maratyszcza/FP16/blob/master/include/fp16/fp16.h
  *
  * The original code is MIT licensed. */
+
+#include <stdint.h>
+#include <math.h>
 
 static inline float fp32_from_bits(uint32_t w) {
     union {
