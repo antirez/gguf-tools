@@ -6,6 +6,7 @@
  */
 
 #ifndef GGUFLIB_H
+#define GGUFLIB_H
 
 #include <stdint.h>
 

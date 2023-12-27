@@ -169,8 +169,9 @@ void gguf_tools_show(const char *filename) {
 }
 
 /* Read a Mixtral MoE model and creates a new non-MoE GGUF file based
- * on the weights of the expert with id 'expert_id'. */
-void gguf_tools_split_mixtral(int expert_id, const char *mixtral_filename, const char *output_filename) {
+ * on the weights of the experts with IDs in the array of 'experts_id'.
+ * The array must contain 32 integers, one for each layer. */
+void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, const char *output_filename) {
     gguf_ctx *mixtral = gguf_init(mixtral_filename);
     if (mixtral == NULL) {
         perror("Opening Mixtral file");
@@ -238,6 +239,20 @@ void gguf_tools_split_mixtral(int expert_id, const char *mixtral_filename, const
         /* The tensor is a feed-forward tensor? We want to copy only
          * the ones of our expert ID. */
         if (strstr(tn,".ffn_") != NULL && strstr(tn,".ffn_norm") == NULL) {
+            /* Extract which block this FFN belongs. */
+            int block;
+            assert(memcmp(tn,"blk.",4) == 0); // Must start with blk.<block>
+            char *p = strchr(tn+4,'.');
+            assert(p != NULL);
+            *p = 0;
+            block = atoi(tn+4);
+            *p = '.';
+            assert(block >= 0 && block < 32);
+
+            /* Now that we have the block, we can select the corresponding
+             * expert ID we want to use for this block. */
+            int expert_id = experts_id[block];
+
             char match[32];
             snprintf(match,sizeof(match),".%d.weight",expert_id);
             char *match_ptr = strstr(tn,match);
@@ -283,7 +298,8 @@ void gguf_tools_split_mixtral(int expert_id, const char *mixtral_filename, const
 
     /* Finally, append the tensors weights. */
     for (uint32_t j = 0; j < num_tensors; j++) {
-        printf("Writing tensor %s\n", tensors[j].dest_name);
+        printf("Writing tensor %s (weights from %.*s)\n", tensors[j].dest_name,
+            (int)tensors[j].orig_info.namelen, tensors[j].orig_info.name);
         if (gguf_append_tensor_data(output,tensors[j].orig_info.weights_data,
             tensors[j].orig_info.bsize) == 0)
         {
@@ -300,7 +316,9 @@ void gguf_tools_usage(const char *progname) {
     printf("Usage: %s <subcommand> [options...]\n"
            "Subcommands:\n"
            "  show <filename> -- show GGUF model keys and tensors.\n"
-           "  split-mixtral <id> mixtral.gguf out.gguf -- extract expert.\n"
+           "  split-mixtral <ids...> mixtral.gguf out.gguf -- extract expert.\n"
+           "Example:\n"
+           "  split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf\n"
            , progname);
     exit(1);
 }
@@ -311,7 +329,22 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"show") && argc == 3) {
         gguf_tools_show(argv[2]);
     } else if (!strcmp(argv[1],"split-mixtral") && argc == 5) {
-        gguf_tools_split_mixtral(atoi(argv[2]),argv[3],argv[4]);
+        int experts[32];
+        size_t elen = strlen(argv[2]);
+        for (size_t j = 0; j < 32; j++) {
+            if (j < elen) {
+                experts[j] = argv[2][j] - '0';
+                if (experts[j] < 0 || experts[j] > 7) {
+                    fprintf(stderr,"Invalid expert ID: %d\n", experts[j]);
+                    exit(1);
+                }
+            } else {
+                /* If there aren't 32 digits in the input, use the last
+                 * one repeated up to the last layer. */
+                experts[j] = j > 1 ? experts[j-1] : 0;
+            }
+        }
+        gguf_tools_split_mixtral(experts,argv[3],argv[4]);
     } else {
         gguf_tools_usage(argv[0]);
     }
