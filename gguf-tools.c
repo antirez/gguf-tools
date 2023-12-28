@@ -163,6 +163,7 @@ void gguf_tools_show(const char *filename) {
 
     /* Show all the tensors. */
     gguf_tensor tensor;
+    uint64_t params = 0;
     while (gguf_get_tensor(ctx,&tensor)) {
         printf("%s tensor %.*s @%llu, %llu weights, %llu bytes\n",
             gguf_get_tensor_type_name(tensor.type),
@@ -171,7 +172,10 @@ void gguf_tools_show(const char *filename) {
             tensor.offset,
             tensor.num_weights,
             tensor.bsize);
+        params += tensor.num_weights;
     }
+    printf("gguf-tools.info.parameters: %.02fB\n",
+        (double)params/1000000000);
     return;
 }
 
