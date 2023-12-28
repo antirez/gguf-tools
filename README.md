@@ -8,6 +8,14 @@ useless stuff, to show the library usage.
 
 shows detailed info about the GGUF file. This will include all the key-value pairs, including arrays, and detailed tensors informations. Tensor offsets will be relative to the start *of the file* (so they are actually absolute offsets), not the start of the data section like in the GGUF format.
 
+    gguf-tools compare file1.gguf file2.gguf
+
+For each matching tensor (same name and parameters count) compute the average weights difference. This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that becasue of quantization, even tensors that are functionally equivalent may have some small average difference.
+
+    gguf-tools inspect-tensor file.gguf tensor.name [count]
+
+Show all (if count is not specified, otherwise only the first _count_) weights values of the specified tensor. This is useful for low level stuff, like checking if quantization is working as expected, see the introduced error, model fingerprinting and so forth.
+
     gguf-tools split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf
 
 Extracts a 7B model `out.gguf` from Mixtral 7B MoE using the specified MoE ID for each layer (there are 32 digits in the sequence 652...).
