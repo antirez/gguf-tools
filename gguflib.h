@@ -13,27 +13,27 @@
 /* ============================ Enums and structures ======================== */
 
 enum gguf_tensor_type {
-    GUFF_TYPE_F32  = 0,
-    GUFF_TYPE_F16  = 1,
-    GUFF_TYPE_Q4_0 = 2,
-    GUFF_TYPE_Q4_1 = 3,
-    // GUFF_TYPE_Q4_2 = 4, support has been removed
-    // GUFF_TYPE_Q4_3 (5) support has been removed
-    GUFF_TYPE_Q5_0 = 6,
-    GUFF_TYPE_Q5_1 = 7,
-    GUFF_TYPE_Q8_0 = 8,
-    GUFF_TYPE_Q8_1 = 9,
+    GGUF_TYPE_F32  = 0,
+    GGUF_TYPE_F16  = 1,
+    GGUF_TYPE_Q4_0 = 2,
+    GGUF_TYPE_Q4_1 = 3,
+    // GGUF_TYPE_Q4_2 = 4, support has been removed
+    // GGUF_TYPE_Q4_3 (5) support has been removed
+    GGUF_TYPE_Q5_0 = 6,
+    GGUF_TYPE_Q5_1 = 7,
+    GGUF_TYPE_Q8_0 = 8,
+    GGUF_TYPE_Q8_1 = 9,
     // k-quantizations
-    GUFF_TYPE_Q2_K = 10,
-    GUFF_TYPE_Q3_K = 11,
-    GUFF_TYPE_Q4_K = 12,
-    GUFF_TYPE_Q5_K = 13,
-    GUFF_TYPE_Q6_K = 14,
-    GUFF_TYPE_Q8_K = 15,
-    GUFF_TYPE_I8,
-    GUFF_TYPE_I16,
-    GUFF_TYPE_I32,
-    GUFF_TYPE_COUNT,
+    GGUF_TYPE_Q2_K = 10,
+    GGUF_TYPE_Q3_K = 11,
+    GGUF_TYPE_Q4_K = 12,
+    GGUF_TYPE_Q5_K = 13,
+    GGUF_TYPE_Q6_K = 14,
+    GGUF_TYPE_Q8_K = 15,
+    GGUF_TYPE_I8,
+    GGUF_TYPE_I16,
+    GGUF_TYPE_I32,
+    GGUF_TYPE_COUNT,
 };
 
 enum gguf_value_type {

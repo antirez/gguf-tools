@@ -9,6 +9,11 @@
 #include "sds.h"
 #include "fp16.h"
 
+/* Global options that can could be used for all the subcommands. */
+struct {
+    int verbose;        // --verbose option
+} Opt = {0};
+
 /* ========================== Utility functions  ============================ */
 
 /* Glob-style pattern matching. Return 1 on match, 0 otherwise. */
@@ -170,6 +175,8 @@ void gguf_tools_show(const char *filename) {
     return;
 }
 
+/* ======================= 'split-mixtral' subcommand ======================= */
+
 /* Read a Mixtral MoE model and creates a new non-MoE GGUF file based
  * on the weights of the experts with IDs in the array of 'experts_id'.
  * The array must contain 32 integers, one for each layer. */
@@ -312,6 +319,8 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
     exit(0);
 }
 
+/* ====================== 'inspect-weights' subcommand ====================== */
+
 void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_t count) {
     gguf_ctx *ctx = gguf_init(filename);
     if (ctx == NULL) {
@@ -362,7 +371,7 @@ void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_
 /* ======================= Main and CLI options parsing ===================== */
 
 void gguf_tools_usage(const char *progname) {
-    printf("Usage: %s <subcommand> [options...]\n"
+    printf("Usage: %s <subcommand> [arguments...] [options...]\n"
 "Subcommands:\n"
 "  show <filename> -- show GGUF model keys and tensors.\n"
 "  inspect-tensor <filename> <tensor-name> [count] -- show tensor weights.\n"
