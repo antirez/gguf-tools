@@ -158,7 +158,7 @@ void gguf_tools_show(const char *filename) {
     gguf_key key;
     while (gguf_get_key(ctx,&key)) {
         printf("%.*s: [%s] ", (int)key.namelen, key.name, gguf_get_value_type_name(key.type));
-        gguf_print_value(ctx,key.type,key.val,0);
+        gguf_print_value(ctx,key.type,key.val,Opt.verbose);
         printf("\n");
     }
 
@@ -413,7 +413,7 @@ void gguf_tools_compare(const char *file1, const char *file2) {
             if (tensor2.namelen == tensor1.namelen &&
                 memcmp(tensor2.name,tensor1.name,tensor1.namelen) == 0)
             {
-                printf("%.*s: ", (int)tensor1.namelen, tensor1.name);
+                printf("[%.*s]: ", (int)tensor1.namelen, tensor1.name);
                 fflush(stdout);
                 if (tensor1.num_weights != tensor2.num_weights) {
                     printf("size mismatch\n");
@@ -436,6 +436,8 @@ void gguf_tools_usage(const char *progname) {
 "  inspect-tensor <filename> <tensor-name> [count] -- show tensor weights.\n"
 "  compare <file1> <file2> -- avg weights diff for matching tensor names.\n"
 "  split-mixtral <ids...> mixtral.gguf out.gguf -- extract expert.\n"
+"Options:\n"
+"  --verbose       :With 'show', print full arrays (e.g. token lists)\n"
 "Example:\n"
 "  split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf\n"
            , progname);
@@ -444,6 +446,26 @@ void gguf_tools_usage(const char *progname) {
 
 int main(int argc, char **argv) {
     if (argc < 3) gguf_tools_usage(argv[0]);
+
+    /* Parse options before getting into subcommands parsing. */
+    for (int j = 1; j < argc; j++) {
+        /* Every time we find a an option, we try to parse it
+         * and set the used argv[] entires to NULL. Later we remove
+         * the NULL entries. In this way '--options' can be anywhere,
+         * making the tool simpler to use. */
+        if (!strcmp(argv[j],"--verbose")) {
+            argv[j] = NULL;
+            argc--;
+            Opt.verbose = 1;
+        }
+    }
+
+    /* Strip empty elements. */
+    for (int j = 1; j < argc; j++) {
+        if (argv[j] == NULL) {
+            memmove(argv+j, argv+j+1, sizeof(char*) * (argc-j));
+        }
+    }
 
     if (!strcmp(argv[1],"show") && argc == 3) {
         gguf_tools_show(argv[2]);

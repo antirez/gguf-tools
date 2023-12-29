@@ -1,22 +1,27 @@
 # GGUF tools
 
 This is a work in progress library to manipulate GGUF files.
-The program 'gguf-tools' use the library to implement both useful and
-useless stuff, to show the library usage.
+While the library aims to be useful, one of the main goals is to provide
+an accessible code base that as a side effect documents the GGUF
+files used by the awesome [llama.cpp](https://github.com/ggerganov/llama.cpp) project.
 
-    gguf-tools show file.gguf
+The program **gguf-tools** use the library to implement both useful and
+useless stuff, to show the library usage in the real world. For now
+the utility implements the following subcommands:
+
+### gguf-tools show file.gguf
 
 shows detailed info about the GGUF file. This will include all the key-value pairs, including arrays, and detailed tensors informations. Tensor offsets will be relative to the start *of the file* (so they are actually absolute offsets), not the start of the data section like in the GGUF format.
 
-    gguf-tools compare file1.gguf file2.gguf
+### gguf-tools compare file1.gguf file2.gguf
 
 For each matching tensor (same name and parameters count) compute the average weights difference. This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that becasue of quantization, even tensors that are functionally equivalent may have some small average difference.
 
-    gguf-tools inspect-tensor file.gguf tensor.name [count]
+### gguf-tools inspect-tensor file.gguf tensor.name [count]
 
 Show all (if count is not specified, otherwise only the first _count_) weights values of the specified tensor. This is useful for low level stuff, like checking if quantization is working as expected, see the introduced error, model fingerprinting and so forth.
 
-    gguf-tools split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf
+### gguf-tools split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf
 
 Extracts a 7B model `out.gguf` from Mixtral 7B MoE using the specified MoE ID for each layer (there are 32 digits in the sequence 652...).
 
