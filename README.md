@@ -17,6 +17,22 @@ shows detailed info about the GGUF file. This will include all the key-value pai
 
 For each matching tensor (same name and parameters count) compute the average weights difference. This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that becasue of quantization, even tensors that are functionally equivalent may have some small average difference.
 
+Example output:
+
+```
+./gguf-tools compare mistral-7b-instruct-v0.2.Q8_0.gguf \
+                     solar-10.7b-instruct-v1.0-uncensored.Q8_0.gguf
+[token_embd.weight]: avg weights difference: 44.539944%
+[blk.0.attn_q.weight]: avg weights difference: 48.717736%
+[blk.0.attn_k.weight]: avg weights difference: 56.201885%
+[blk.0.attn_v.weight]: avg weights difference: 47.087249%
+[blk.0.attn_output.weight]: avg weights difference: 47.663048%
+[blk.0.ffn_gate.weight]: avg weights difference: 37.508761%
+[blk.0.ffn_up.weight]: avg weights difference: 39.061584%
+[blk.0.ffn_down.weight]: avg weights difference: 39.632648%
+...
+```
+
 ### gguf-tools inspect-tensor file.gguf tensor.name [count]
 
 Show all (if count is not specified, otherwise only the first _count_) weights values of the specified tensor. This is useful for low level stuff, like checking if quantization is working as expected, see the introduced error, model fingerprinting and so forth.
