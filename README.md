@@ -53,7 +53,7 @@ f32 tensor blk.0.ffn_up.bias @168984416, 10240 weights, 40960 bytes
 
 This tool is useful to understand if two LLMs (or other models distributed as GGUF files) are related, for instance if one is the finetune of another, or if both are fine-tuned from the same parent model.
 
-For each matching tensor (same name and parameters count), the command computes the average weights difference (in percentage, so that a random distribution in the interval -N, +N would be on average 100% different than another random distribution in the same interval). This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that becasue of quantization, even tensors that are functionally equivalent may have some small average difference.
+For each matching tensor (same name and parameters count), the command computes the average weights difference (in percentage, so that a random distribution in the interval -N, +N would be on average 100% different than another random distribution in the same interval). This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that because of quantization, even tensors that are functionally equivalent may have some small average difference.
 
 Example output:
 
@@ -84,7 +84,7 @@ Note that split-mixtral is quite useless as models obtained in this way will not
 ## gufflib API
 
 For now the only documentation is the implementation itself: see the
-gguf-tools.c for usage information. This may chagne later, but for now
+gguf-tools.c for usage information. This may change later, but for now
 the library is under active development.
 
 The code is well commented, and the API so far is extremely simple to understand and use.
