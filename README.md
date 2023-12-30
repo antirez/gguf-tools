@@ -15,6 +15,40 @@ the utility implements the following subcommands:
 
 shows detailed info about the GGUF file. This will include all the key-value pairs, including arrays, and detailed tensors informations. Tensor offsets will be relative to the start *of the file* (so they are actually absolute offsets), not the start of the data section like in the GGUF format.
 
+Example output:
+
+```
+./gguf-tools show models/phi-2.Q8_0.gguf | head -20        :main*: ??
+models/phi-2.Q8_0.gguf (ver 3): 20 key-value pairs, 325 tensors
+general.architecture: [string] phi2
+general.name: [string] Phi2
+phi2.context_length: [uint32] 2048
+phi2.embedding_length: [uint32] 2560
+phi2.feed_forward_length: [uint32] 10240
+phi2.block_count: [uint32] 32
+phi2.attention.head_count: [uint32] 32
+phi2.attention.head_count_kv: [uint32] 32
+phi2.attention.layer_norm_epsilon: [float32] 0.000010
+phi2.rope.dimension_count: [uint32] 32
+general.file_type: [uint32] 7
+tokenizer.ggml.add_bos_token: [bool] false
+tokenizer.ggml.model: [string] gpt2
+tokenizer.ggml.tokens: [array] [!, ", #, $, %, &, ', (, ), *, +, ,, -, ., /, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, :, ;, <, =, >, ... 51170 more items of 51200]
+
+... many more key-value pairs ...
+
+q8_0 tensor token_embd.weight @1806176, 131072000 weights, 139264000 bytes
+f32 tensor blk.0.attn_norm.bias @141070176, 2560 weights, 10240 bytes
+f32 tensor blk.0.attn_norm.weight @141080416, 2560 weights, 10240 bytes
+f32 tensor blk.0.attn_qkv.bias @141090656, 7680 weights, 30720 bytes
+q8_0 tensor blk.0.attn_qkv.weight @141121376, 19660800 weights, 20889600 bytes
+f32 tensor blk.0.attn_output.bias @162010976, 2560 weights, 10240 bytes
+q8_0 tensor blk.0.attn_output.weight @162021216, 6553600 weights, 6963200 bytes
+f32 tensor blk.0.ffn_up.bias @168984416, 10240 weights, 40960 bytes
+
+... many more tensors ...
+```
+
 ### gguf-tools compare file1.gguf file2.gguf
 
 This tool is useful to understand if two LLMs (or other models distributed as GGUF files) are related, for instance if one is the finetune of another, or if both are fine-tuned from the same parent model.
