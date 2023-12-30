@@ -511,7 +511,16 @@ float *gguf_tensor_to_float(gguf_tensor *tensor) {
         gguf_get_tensor_type_features(tensor->type);
     uint64_t block_size = tf->bytes_per_block;
     float *f = malloc(tensor->num_weights*sizeof(float));
-    if (tensor->type == GGUF_TYPE_Q8_0) {
+    if (tensor->type == GGUF_TYPE_F32) {
+        memcpy(f, tensor->weights_data, tensor->num_weights*sizeof(float));
+    } else if (tensor->type == GGUF_TYPE_F16) {
+        uint64_t i = 0; // i-th weight to dequantize.
+        uint16_t *w16 = (uint16_t*) tensor->weights_data;
+        while(i < tensor->num_weights) {
+            f[i] = from_half(w16[i]);
+            i++;
+        }
+    } else if (tensor->type == GGUF_TYPE_Q8_0) {
         /* Very simple layout: |16 bit delta|32 x 8bit weights|
          * Each weight is delta * quantized_weight[0..31] */
         int8_t *block = (int8_t*)tensor->weights_data;
