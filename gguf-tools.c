@@ -376,8 +376,16 @@ void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_
 /* ========================== 'compare' subcommand ========================== */
 
 /* Given two tensors of the same length, return the average difference
- * of their weights. Returns 1 on success, 0 if one or both the provided
- * tensors can't be dequantized. */
+ * of their weights, in percentage.
+ *
+ * The difference is calculated like that: the average of the absolute values
+ * of all the weights in the two vectors is calculated. Then, for each set
+ * of corresponding weights, we calculate the difference, and the percentage
+ * according to the average value (100%). The function returns the average
+ * of the percentage of difference between all the pairs.
+ *
+ * Returns 1 on success, 0 if one or both the provided tensors can't be
+ * dequantized. */
 int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
     float *weights1 = gguf_tensor_to_float(t1);
     float *weights2 = gguf_tensor_to_float(t2);
@@ -387,12 +395,26 @@ int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
         return 0;
     }
 
+    /* Compute the average magnitude of the weights. */
+    double tot_mag = 0;
+    for (uint64_t j = 0; j < t1->num_weights; j++) {
+        tot_mag += fabs(weights1[j]);
+        tot_mag += fabs(weights2[j]);
+    }
+    double avg_mag = tot_mag/(t1->num_weights*2);
+
+    /* Compute the average % difference of the weights. */
     double tot_diff = 0;
     for (uint64_t j = 0; j < t1->num_weights; j++)
         tot_diff += fabs(weights1[j]-weights2[j]);
+    double avg_diff = tot_diff / t1->num_weights;
+
+    /* Multiply by 75 to normalize the difference of a
+     * random varialbe between -N and +N to 0 - 100% */
+    *diff = avg_diff / avg_mag * 75;
+
     free(weights1);
     free(weights2);
-    *diff = tot_diff/t1->num_weights;
     return 1;
 }
 
@@ -423,7 +445,7 @@ void gguf_tools_compare(const char *file1, const char *file2) {
                 } else {
                     double diff;
                     if (tensors_avg_diff(&tensor1, &tensor2, &diff)) {
-                        printf("avg weights difference: %f\n", diff);
+                        printf("avg weights difference: %f%%\n", diff);
                     } else {
                         printf("dequantization function missing...\n");
                     }
