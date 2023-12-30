@@ -7,7 +7,7 @@ files used by the awesome [llama.cpp](https://github.com/ggerganov/llama.cpp) pr
 the _local_ machine learning scene, so to have multiple implementations
 of parsers and files generators may be useful.
 
-The program **gguf-tools** use the library to implement both useful and
+The program **gguf-tools** uses the library to implement both useful and
 useless stuff, to show the library usage in the real world. For now
 the utility implements the following subcommands:
 
