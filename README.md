@@ -3,7 +3,9 @@
 This is a work in progress library to manipulate GGUF files.
 While the library aims to be useful, one of the main goals is to provide
 an accessible code base that as a side effect documents the GGUF
-files used by the awesome [llama.cpp](https://github.com/ggerganov/llama.cpp) project.
+files used by the awesome [llama.cpp](https://github.com/ggerganov/llama.cpp) project: GGUF files are becoming increasingly more used and central in
+the _local_ machine learning scene, so to have multiple implementations
+of parsers and files generators may be useful.
 
 The program **gguf-tools** use the library to implement both useful and
 useless stuff, to show the library usage in the real world. For now
@@ -15,7 +17,9 @@ shows detailed info about the GGUF file. This will include all the key-value pai
 
 ### gguf-tools compare file1.gguf file2.gguf
 
-For each matching tensor (same name and parameters count) compute the average weights difference. This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that becasue of quantization, even tensors that are functionally equivalent may have some small average difference.
+This tool is useful to understand if two LLMs (or other models distributed as GGUF files) are related, for instance if one is the finetune of another, or if both are fine-tuned from the same parent model.
+
+For each matching tensor (same name and parameters count), the command computes the average weights difference (in percentage, so that a random distribution in the interval -N, +N would be on average 100% different than another random distribution in the same interval). This is useful to see if a model is a finetune of another model, how much it was finetuned, which layers were frozen while finetuning and so forth. Note that becasue of quantization, even tensors that are functionally equivalent may have some small average difference.
 
 Example output:
 
@@ -41,7 +45,19 @@ Show all (if count is not specified, otherwise only the first _count_) weights v
 
 Extracts a 7B model `out.gguf` from Mixtral 7B MoE using the specified MoE ID for each layer (there are 32 digits in the sequence 652...).
 
-Note that split-mixtral is quite useless as models obtained in this way will not perform any useful action. This is just an experiment and a non trivial task to show how to use the library. Likely it will be removed soon, once I have more interesting and useful examples to show, like models merging.
+Note that split-mixtral is quite useless as models obtained in this way will not perform any useful work. This is just an experiment and a non trivial task to show how to use the library. Likely it will be removed soon, once I have more interesting and useful examples to show, like models merging.
+
+## gufflib API
+
+For now the only documentation is the implementation itself: see the
+gguf-tools.c for usage information. This may chagne later, but for now
+the library is under active development.
+
+The code is well commented, and the API so far is extremely simple to understand and use.
+
+## Limitations
+
+Many quantization formats are missing.
 
 ## Specification documents
 
