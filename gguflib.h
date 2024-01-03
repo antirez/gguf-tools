@@ -120,7 +120,7 @@ struct gguf_header {
     uint64_t metadata_kv_count;
 };
 
-/* Key represneation in this library API. */
+/* Key representation in this library API. */
 typedef struct {
     const char *name;
     size_t namelen;

@@ -101,7 +101,7 @@ gguf_ctx *gguf_init(const char *filename) {
     gguf_ctx *ctx = malloc(sizeof(*ctx));
     memset(ctx,0,sizeof(*ctx));
     ctx->fd = fd;
-    ctx->alignment = 32; // Default alighment of GGUF files.
+    ctx->alignment = 32; // Default alignment of GGUF files.
     ctx->data_off = 0;   // Set later.
     if (gguf_remap(ctx) == 0) {
         gguf_end(ctx);
@@ -176,8 +176,8 @@ int gguf_get_key(gguf_ctx *ctx, gguf_key *key) {
     ctx->off += 8+str->len+4; // Skip prefixed len + string + type.
     key->val = (void*)(ctx->data+ctx->off);
 
-    /* Update the context with the alignmnet data, if needed. */
-    const char *alignment_key = "general.alignmnet";
+    /* Update the context with the alignment data, if needed. */
+    const char *alignment_key = "general.alignment";
     if (key->type == GGUF_VALUE_TYPE_UINT32 &&
         key->namelen == strlen(alignment_key) &&
         memcmp(alignment_key, key->name, key->namelen) == 0)
@@ -223,7 +223,7 @@ void gguf_set_data_offset(gguf_ctx *ctx) {
 }
 
 /* Parse the next tensor info data. Returns information into 'tensor'.
- * The function return value is 1 is a tensor was returned, or 0
+ * The function return value is 1 if a tensor was returned, or 0
  * if there are no longer tensors to process in this GGUF file or if
  * there are still key-value pairs to process before getting into the
  * tensors section.
@@ -257,7 +257,7 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     tensor->ndim = *num_dim;
     assert(tensor->ndim <= GGUF_TENSOR_MAX_DIM);
 
-    /* Read the dimentions: all the unused dimentions are set to 1. */
+    /* Read the dimentions: all the unused dimensions are set to 1. */
     tensor->num_weights = 1;
     for (uint32_t j = 0; j < tensor->ndim; j++) {
         if (j < tensor->ndim) {
