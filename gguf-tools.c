@@ -166,13 +166,17 @@ void gguf_tools_show(const char *filename) {
     gguf_tensor tensor;
     uint64_t params = 0;
     while (gguf_get_tensor(ctx,&tensor)) {
-        printf("%s tensor %.*s @%llu, %llu weights, %llu bytes\n",
+        printf("%s tensor %.*s @%llu, %llu weights, dims ",
             gguf_get_tensor_type_name(tensor.type),
             (int)tensor.namelen,
             tensor.name,
             tensor.offset,
-            tensor.num_weights,
-            tensor.bsize);
+            tensor.num_weights);
+        for (uint32_t j = 0; j < tensor.ndim; j++) {
+            printf("%s%llu",(j == 0) ? "[" : ",", tensor.dim[j]);
+        }
+        printf("], %llu bytes\n", tensor.bsize);
+
         params += tensor.num_weights;
     }
     printf("gguf-tools.info.parameters: %.02fB\n",

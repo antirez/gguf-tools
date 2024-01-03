@@ -37,14 +37,14 @@ tokenizer.ggml.tokens: [array] [!, ", #, $, %, &, ', (, ), *, +, ,, -, ., /, 0, 
 
 ... many more key-value pairs ...
 
-q8_0 tensor token_embd.weight @1806176, 131072000 weights, 139264000 bytes
-f32 tensor blk.0.attn_norm.bias @141070176, 2560 weights, 10240 bytes
-f32 tensor blk.0.attn_norm.weight @141080416, 2560 weights, 10240 bytes
-f32 tensor blk.0.attn_qkv.bias @141090656, 7680 weights, 30720 bytes
-q8_0 tensor blk.0.attn_qkv.weight @141121376, 19660800 weights, 20889600 bytes
-f32 tensor blk.0.attn_output.bias @162010976, 2560 weights, 10240 bytes
-q8_0 tensor blk.0.attn_output.weight @162021216, 6553600 weights, 6963200 bytes
-f32 tensor blk.0.ffn_up.bias @168984416, 10240 weights, 40960 bytes
+q8_0 tensor token_embd.weight @1806176, 131072000 weights, dims [2560,51200], 139264000 bytes
+f32 tensor blk.0.attn_norm.bias @141070176, 2560 weights, dims [2560], 10240 bytes
+f32 tensor blk.0.attn_norm.weight @141080416, 2560 weights, dims [2560], 10240 bytes
+f32 tensor blk.0.attn_qkv.bias @141090656, 7680 weights, dims [7680], 30720 bytes
+q8_0 tensor blk.0.attn_qkv.weight @141121376, 19660800 weights, dims [2560,7680], 20889600 bytes
+f32 tensor blk.0.attn_output.bias @162010976, 2560 weights, dims [2560], 10240 bytes
+q8_0 tensor blk.0.attn_output.weight @162021216, 6553600 weights, dims [2560,2560], 6963200 bytes
+f32 tensor blk.0.ffn_up.bias @168984416, 10240 weights, dims [10240], 40960 bytes
 
 ... many more tensors ...
 ```
