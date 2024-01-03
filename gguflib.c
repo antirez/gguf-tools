@@ -500,6 +500,195 @@ int gguf_append_tensor_data(gguf_ctx *ctx, void *tensor, uint64_t tensor_size) {
 
 /* ============================ GGUF dequantization ========================= */
 
+/* G8_0 blocks dequantization to floats.
+ * 'y' is supposed to have enough space for 'count' weights. */
+void gguf_q8_0_to_float(void *weights_data, float *y, uint64_t count) {
+    struct gguf_tensor_type_features *tf =
+        gguf_get_tensor_type_features(GGUF_TYPE_Q8_0);
+
+    /* Very simple layout: |16 bit scale|32 x 8bit weights|
+     * Each weight is scale * quantized_weight[0..31] */
+    int8_t *block = weights_data;
+    uint64_t i = 0; // i-th weight to dequantize.
+    while(i < count) {
+        /* For each block get the scale and convert all the
+         * weights in the block. */
+        float scale = from_half(*((uint16_t*)block));
+        for (uint32_t j = 0; j < tf->items_per_block; j++) {
+            y[i++] = block[j+2] * scale; // j+2 to skip the scale bytes.
+            if (i == count) break;
+        }
+        block += tf->bytes_per_block; // Go to the next block.
+    }
+}
+
+/* G4_K blocks dequantization to floats.
+ * 'y' is supposed to have enough space for 'count' weights. */
+void gguf_q4_k_to_float(void *weights_data, float *y, uint64_t count) {
+    uint8_t *block = weights_data;
+    uint64_t i = 0; // i-th weight to dequantize.
+    while(i < count) {
+        /* Q4_K super-blocks have 256 total weights, split in 8 sub-block.
+         * Each 8 sub-blocks have a different set of scales/mins, so
+         * there are 16 total values for scales/mins, but the scales/mins
+         * are also quantized (6 bits each) using two different scales:
+         * scale_of_scales and scale_of_mins, that are two FP16 values
+         * at the start of the super block, so:
+         *
+         * |FP16 s_of_scales | +
+         * |FP16 s_of_mins   | +
+         * |16 6 bit integers d,m pairs, one per sub-block of 32 ele | +
+         * |256 x 4bit weights|
+         *
+         * Each quantized weight 'q' is restored as:
+         *
+         *      w = q * scale - min;
+         */
+        float scales_scale = from_half(*((uint16_t*)block));
+        float mins_scale  = from_half(*((uint16_t*)(block+2)));
+        block += 4;
+
+        /* Extract the 16 x 6 bit values scales-mins pairs. The
+         * encoding of those values is odd because of performance
+         * reasons:
+         *
+         *  dddddddd dddddddd dddddddd dddddddd mmmmmmmm mmmmmmmm
+         *  44000000|55111111|66222222|77333333|44000000|55111111
+         *
+         *  mmmmmmmm mmmmmmmm mmmmdddd mmmmdddd mmmmdddd mmmmdddd
+         *  66222222|77333333|44444444|55555555|66666666|77777777
+         *
+         * In the above diagram you can see the 12 bytes and the
+         * scales/mins 6 bits encodings. */
+
+        /* Scale scales/mins. */
+        float scales[8], mins[8];
+        for (int j = 0; j < 8; j++) {
+            uint8_t d,m;
+            if (j < 4) {
+                d = block[j] & 63;
+                m = block[j+4] & 63;
+            } else {
+                d = (block[j+4] & 0xF) | ((block[j-4] >> 6) << 4);
+                m = (block[j+4] >> 4) | ((block[j-0] >> 6) << 4);
+            }
+            scales[j] = d * scales_scale;
+            mins[j] = m * mins_scale;
+        }
+        block += 12; // Seek 4-bit weights start.
+
+        /* Finally we can extract the 256 weights.
+         * We process two blocks per time, because each
+         * 32 bytes have 64 weights stored like this:
+         * First 32 weights of the first block are the higher 4
+         * bits of each byte. Second 32 weights of the second
+         * block are lower 4 bits of each byte. */
+        for (uint32_t b = 0; b < 8; b += 2) {
+            float scale = scales[b];
+            float min = mins[b];
+            /* First set: higher bits. */
+            for (uint32_t j = 0; j < 32; j++) {
+                uint8_t w = block[j] & 0xf;
+                y[i++] = w * scale - min;
+                if (i == count) return;
+            }
+            /* Second set: lower bits. */
+            for (uint32_t j = 0; j < 32; j++) {
+                uint8_t w = block[j] >> 4;
+                y[i++] = w * scale - min;
+                if (i == count) return;
+            }
+            block += 32; // Skip the two processed blocks.
+        }
+    }
+}
+
+/* G6_K blocks dequantization to floats.
+ * 'y' is supposed to have enough space for 'count' weights. */
+void gguf_q6_k_to_float(void *weights_data, float *y, uint64_t count) {
+    uint8_t *block = weights_data;
+    uint64_t i = 0; // i-th weight to dequantize.
+    while(i < count) {
+        /* Q6_K super-blocks have 256 total weights, split in 16 sub-block
+         * of 16 elements. There are no mins, just scales. Each sub-block
+         * have a block-specific scale quantized at 8 bits via a single
+         * 16-bit main scale-of-scales.
+         *
+         * |128 bytes of lower 4 bits of quants| +
+         * |64 bytes of lower 2 bits of quants| +
+         * |16 bytes of 8-bit block scales | +
+         * |A single FP16 value: the scale of the scales above |
+         *
+         * Let's call "L" the lower 4 bits array (128 bytes)
+         * and "H" the higher 2 bits array (64 bytes)
+         *
+         * Values are logically encoded in two 128 weights clusters
+         * where the first cluster is the first 64 bytes of "L" and
+         * the first 32 bytes of "H".
+         *
+         * Higher bits of the i-th weight from 0 to 63 are stored in the
+         * lower 4 bits of L[i], while higher bits of the i-th weight
+         * from 64 to 127 are stored in the higher bits of L[i-64]:
+         *
+         * L = |64640000|65650101|66660202|...
+         *
+         * So this actually is: w_low = (L[i%64] >> i/64*4) & 15
+         *
+         * H = |96643200|97653301|98663402|...
+         *
+         * Higher bits of the i-th weight are arranged like that:
+         *
+         * From 0 to 31,  bits 0,1 of H[i]
+         * From 32 to 63, bits 3,2 of H[i-32]
+         * From 64 to 95, bits 5,4 of H[i-64]
+         * From 96 to 127, bits 7,6 of H[i-96]
+         *
+         * So this actually is: w_high = ((H[i%32] >> i/32*2) & 3) << 2
+         * The same is true with the next 128 weights cluster, but
+         * everything is relative to the second half of H and L.
+         *
+         * Finally, there is to extract the scale from the
+         * 16 blocks scales array. Scales are just sequential,
+         * so the i-th weight uses the scale[i/16].
+         *
+         * Important: In Q6_K the 6-bit quants are wisely stored
+         * as unsigned integers + 32, so that there is no need to
+         * do sign bit extension in order to convert the 6-bit value
+         * into 8 bit value. Instead the values from -32 to 31 are
+         * remapped in the 0-63 range (just adding 32).
+         */
+        float super_scale = from_half(*((uint16_t*)(block+128+64+16)));
+        uint8_t *L = block;
+        uint8_t *H = block+128;
+        int8_t *scales = (int8_t*)block+128+64;
+        for (int cluster = 0; cluster < 2; cluster++) {
+            for (uint64_t j = 0; j < 128; j++) {
+                y[i] = (super_scale * scales[j/16]) *
+                       ((int8_t)
+                        ((((L[j%64] >> (j/64*4)) & 0xF) |
+                         (((H[j%32] >> (j/32*2)) & 3) << 4)))-32);
+                i++;
+                if (i == count) return;
+            }
+            L += 64;
+            H += 32;
+            scales += 8;
+        }
+        block += 128+64+16+2; // Go to the next block.
+    }
+}
+
+/* FP16 blocks dequantization to floats.
+ * 'y' is supposed to have enough space for 'count' weights. */
+void gguf_f16_to_float(void *weights_data, float *y, uint64_t count) {
+    uint64_t i = 0; // i-th weight to dequantize.
+    uint16_t *w16 = weights_data;
+    while(i < count) {
+        y[i] = from_half(w16[i]);
+        i++;
+    }
+}
+
 /* Convert the specified tensor (quantized or not) into an array of
  * floats. The array is allocated with malloc(). If the tensor is already
  * in FP32 floats format, it is just memcpy()-ed to the destination array.
@@ -507,182 +696,17 @@ int gguf_append_tensor_data(gguf_ctx *ctx, void *tensor, uint64_t tensor_size) {
  * On OOM, NULL is returned. If the tensor format is not yet supported,
  * NULL is returned as well, but errno is set to EINVAL. */
 float *gguf_tensor_to_float(gguf_tensor *tensor) {
-    struct gguf_tensor_type_features *tf =
-        gguf_get_tensor_type_features(tensor->type);
-    uint64_t block_size = tf->bytes_per_block;
     float *f = malloc(tensor->num_weights*sizeof(float));
     if (tensor->type == GGUF_TYPE_F32) {
         memcpy(f, tensor->weights_data, tensor->num_weights*sizeof(float));
     } else if (tensor->type == GGUF_TYPE_F16) {
-        uint64_t i = 0; // i-th weight to dequantize.
-        uint16_t *w16 = (uint16_t*) tensor->weights_data;
-        while(i < tensor->num_weights) {
-            f[i] = from_half(w16[i]);
-            i++;
-        }
+        gguf_f16_to_float(tensor->weights_data, f, tensor->num_weights);
     } else if (tensor->type == GGUF_TYPE_Q8_0) {
-        /* Very simple layout: |16 bit scale|32 x 8bit weights|
-         * Each weight is scale * quantized_weight[0..31] */
-        int8_t *block = (int8_t*)tensor->weights_data;
-        uint64_t i = 0; // i-th weight to dequantize.
-        while(i < tensor->num_weights) {
-            /* For each block get the scale and convert all the
-             * weights in the block. */
-            float scale = from_half(*((uint16_t*)block));
-            for (uint32_t j = 0; j < tf->items_per_block; j++) {
-                f[i++] = block[j+2] * scale; // j+2 to skip the scale bytes.
-                if (i == tensor->num_weights) break;
-            }
-            block += block_size; // Go to the next block.
-        }
+        gguf_q8_0_to_float(tensor->weights_data, f, tensor->num_weights);
     } else if (tensor->type == GGUF_TYPE_Q4_K) {
-        uint8_t *block = (uint8_t*)tensor->weights_data;
-        uint64_t i = 0; // i-th weight to dequantize.
-        while(i < tensor->num_weights) {
-            /* Q4_K super-blocks have 256 total weights, split in 8 sub-block.
-             * Each 8 sub-blocks have a different set of scales/mins, so
-             * there are 16 total values for scales/mins, but the scales/mins
-             * are also quantized (6 bits each) using two different scales:
-             * scale_of_scales and scale_of_mins, that are two FP16 values
-             * at the start of the super block, so:
-             *
-             * |FP16 s_of_scales | + 
-             * |FP16 s_of_mins   | +
-             * |16 6 bit integers d,m pairs, one per sub-block of 32 ele | +
-             * |256 x 4bit weights|
-             *
-             * Each quantized weight 'q' is restored as:
-             *
-             *      w = q * scale - min;
-             */
-            float scales_scale = from_half(*((uint16_t*)block));
-            float mins_scale  = from_half(*((uint16_t*)(block+2)));
-            block += 4;
-            
-            /* Extract the 16 x 6 bit values scales-mins pairs. The
-             * encoding of those values is odd because of performance
-             * reasons:
-             *
-             *  dddddddd dddddddd dddddddd dddddddd mmmmmmmm mmmmmmmm
-             *  44000000|55111111|66222222|77333333|44000000|55111111
-             *
-             *  mmmmmmmm mmmmmmmm mmmmdddd mmmmdddd mmmmdddd mmmmdddd
-             *  66222222|77333333|44444444|55555555|66666666|77777777
-             *
-             * In the above diagram you can see the 12 bytes and the
-             * scales/mins 6 bits encodings. */
-
-            /* Scale scales/mins. */
-            float scales[8], mins[8];
-            for (int j = 0; j < 8; j++) {
-                uint8_t d,m;
-		if (j < 4) {
-		    d = block[j] & 63;
-		    m = block[j+4] & 63;
-		} else {
-		    d = (block[j+4] & 0xF) | ((block[j-4] >> 6) << 4);
-		    m = (block[j+4] >> 4) | ((block[j-0] >> 6) << 4);
-		}
-                scales[j] = d * scales_scale;
-                mins[j] = m * mins_scale;
-            }
-            block += 12; // Seek 4-bit weights start.
-
-            /* Finally we can extract the 256 weights.
-             * We process two blocks per time, because each
-             * 32 bytes have 64 weights stored like this:
-             * First 32 weights of the first block are the higher 4
-             * bits of each byte. Second 32 weights of the second
-             * block are lower 4 bits of each byte. */
-            for (uint32_t b = 0; b < 8; b += 2) {
-                float scale = scales[b];
-                float min = mins[b];
-                /* First set: higher bits. */
-                for (uint32_t j = 0; j < 32; j++) {
-                    uint8_t w = block[j] & 0xf;
-                    f[i++] = w * scale - min;
-                    if (i == tensor->num_weights) return f;
-                }
-                /* Second set: lower bits. */
-                for (uint32_t j = 0; j < 32; j++) {
-                    uint8_t w = block[j] >> 4;
-                    f[i++] = w * scale - min;
-                    if (i == tensor->num_weights) return f;
-                }
-                block += 32; // Skip the two processed blocks.
-            }
-        }
+        gguf_q4_k_to_float(tensor->weights_data, f, tensor->num_weights);
     } else if (tensor->type == GGUF_TYPE_Q6_K) {
-        uint8_t *block = (uint8_t*)tensor->weights_data;
-        uint64_t i = 0; // i-th weight to dequantize.
-        while(i < tensor->num_weights) {
-            /* Q6_K super-blocks have 256 total weights, split in 16 sub-block
-             * of 16 elements. There are no mins, just scales. Each sub-block
-             * have a block-specific scale quantized at 8 bits via a single
-             * 16-bit main scale-of-scales.
-             *
-             * |128 bytes of lower 4 bits of quants| +
-             * |64 bytes of lower 2 bits of quants| +
-             * |16 bytes of 8-bit block scales | +
-             * |A single FP16 value: the scale of the scales above |
-             *
-             * Let's call "L" the lower 4 bits array (128 bytes)
-             * and "H" the higher 2 bits array (64 bytes)
-             *
-             * Values are logically encoded in two 128 weights clusters
-             * where the first cluster is the first 64 bytes of "L" and
-             * the first 32 bytes of "H".
-             *
-             * Higher bits of the i-th weight from 0 to 63 are stored in the
-             * lower 4 bits of L[i], while higher bits of the i-th weight
-             * from 64 to 127 are stored in the higher bits of L[i-64]:
-             *
-             * L = |64640000|65650101|66660202|...
-             *
-             * So this actually is: w_low = (L[i%64] >> i/64*4) & 15
-             *
-             * H = |96643200|97653301|98663402|...
-             *
-             * Higher bits of the i-th weight are arranged like that:
-             *
-             * From 0 to 31,  bits 0,1 of H[i]
-             * From 32 to 63, bits 3,2 of H[i-32]
-             * From 64 to 95, bits 5,4 of H[i-64]
-             * From 96 to 127, bits 7,6 of H[i-96]
-             *
-             * So this actually is: w_high = ((H[i%32] >> i/32*2) & 3) << 2
-             * The same is true with the next 128 weights cluster, but
-             * everything is relative to the second half of H and L.
-             *
-             * Finally, there is to extract the scale from the
-             * 16 blocks scales array. Scales are just sequential,
-             * so the i-th weight uses the scale[i/16].
-             *
-             * Important: In Q6_K the 6-bit quants are wisely stored
-             * as unsigned integers + 32, so that there is no need to
-             * do sign bit extension in order to convert the 6-bit value
-             * into 8 bit value. Instead the values from -32 to 31 are
-             * remapped in the 0-63 range (just adding 32).
-             */
-            float super_scale = from_half(*((uint16_t*)(block+128+64+16)));
-            uint8_t *L = block;
-            uint8_t *H = block+128;
-            int8_t *scales = (int8_t*)block+128+64;
-            for (int cluster = 0; cluster < 2; cluster++) {
-                for (uint64_t j = 0; j < 128; j++) {
-                    f[i] = (super_scale * scales[j/16]) *
-                           ((int8_t)
-                            ((((L[j%64] >> (j/64*4)) & 0xF) |
-                             (((H[j%32] >> (j/32*2)) & 3) << 4)))-32);
-                    i++;
-                    if (i == tensor->num_weights) return f;
-                }
-                L += 64;
-                H += 32;
-                scales += 8;
-            }
-            block += 128+64+16+2; // Go to the next block.
-        }
+        gguf_q6_k_to_float(tensor->weights_data, f, tensor->num_weights);
     } else {
         errno = EINVAL;
         return NULL;
