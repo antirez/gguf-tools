@@ -43,6 +43,9 @@ struct gguf_tensor_type_features {
     {"q5_k", 256, 176},
     {"q6_k", 256, 210},
     {"q8_k", 256, 292},
+    {"i8", 1, 1},
+    {"i16", 1, 2},
+    {"i32", 1, 4},
 };
 
 /* Return the value type name given the type ID. */
@@ -270,6 +273,7 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
         }
     }
     uint32_t *type = (uint32_t*) (ctx->data+ctx->off);
+    if (*type >= GGUF_TYPE_COUNT) return 0;
     ctx->off += 4;  // Skip tensor type.
     tensor->type = *type;
 
