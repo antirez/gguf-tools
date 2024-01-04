@@ -361,14 +361,44 @@ void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_
         exit(1);
     }
 
+    uint64_t strides[GGUF_TENSOR_MAX_DIM] = {0};
+    strides[tensor.ndim-1] = 1;
+    for (int j = tensor.ndim - 2; j >= 0; j--) {
+        strides[j] = tensor.dim[j + 1] * strides[j + 1];
+    }
+
+    const int ident = 4;
     uint64_t j = 0;
+    int broke = 1;
     while (j < tensor.num_weights) {
-        printf("%f, ", weights[j]);
+        int last = j + 1 == tensor.num_weights;
+        for (int k = 0; k < (int) tensor.ndim - 1; k++) {
+            if (j % strides[k] == 0) {
+                printf("%*s\n", k * ident, "[");
+            }
+        }
+        if (broke) {
+            printf("%*s", tensor.ndim * ident, "");
+        }
+        printf("%f%s", weights[j], last ? "" : ", ");
+        broke = 0;
         j++;
-        if (j % 4 == 0) printf("\n");
+        for (int k = (int) tensor.ndim - 2; k >= 0; k--) {
+            if (j % strides[k] == 0) {
+                if (!broke) {
+                    broke = 1;
+                    printf("\n");
+                }
+                printf("%*s%s\n", k * ident, "]", last ? "" : ",");
+            }
+        }
+        if (!broke && j % 4 == 0) {
+            broke = 1;
+            printf("\n");
+        }
         if (j == count) break;
     }
-    if (j % 4 != 0) printf("\n");
+    if (!broke) printf("\n");
     free(weights);
     return;
 }
