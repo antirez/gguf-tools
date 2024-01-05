@@ -368,7 +368,7 @@ void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_
     uint64_t strides[GGUF_TENSOR_MAX_DIM] = {0};
     strides[tensor.ndim-1] = 1;
     for (int j = tensor.ndim - 2; j >= 0; j--) {
-        strides[j] = tensor.dim[j + 1] * strides[j + 1];
+        strides[j] = tensor.dim[tensor.ndim - 2 - j] * strides[j + 1];
     }
 
     const int ident = 4;
