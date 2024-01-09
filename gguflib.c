@@ -96,7 +96,7 @@ uint64_t gguf_value_len(uint32_t type, union gguf_value *val) {
 /* =============================== GGUF file API ============================ */
 
 /* Open a GGUF file and return a parsing context. */
-gguf_ctx *gguf_init(const char *filename) {
+gguf_ctx *gguf_open(const char *filename) {
     int fd = open(filename,O_RDWR|O_APPEND);
     if (fd == -1) return NULL;
 
@@ -107,7 +107,7 @@ gguf_ctx *gguf_init(const char *filename) {
     ctx->alignment = 32; // Default alignment of GGUF files.
     ctx->data_off = 0;   // Set later.
     if (gguf_remap(ctx) == 0) {
-        gguf_end(ctx);
+        gguf_close(ctx);
         return NULL;
     }
     gguf_rewind(ctx);
@@ -156,9 +156,9 @@ int gguf_remap(gguf_ctx *ctx) {
     return 1;
 }
 
-/* Cleanup needed after gguf_init(), to terminate the context
+/* Cleanup needed after gguf_open() and gguf_create(), to terminate the context
  * and cleanup resources. */
-void gguf_end(gguf_ctx *ctx) {
+void gguf_close(gguf_ctx *ctx) {
     if (ctx == NULL) return;
     if (ctx->data) munmap(ctx->data,ctx->size);
     close(ctx->fd);
@@ -443,7 +443,7 @@ gguf_ctx *gguf_create(const char *filename, int flags) {
     }
     fclose(fp);
 
-    return gguf_init(filename);
+    return gguf_open(filename);
 }
 
 /* Low level API to append some key-value data to the GGUF file identified

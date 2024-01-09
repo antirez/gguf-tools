@@ -163,11 +163,11 @@ typedef struct {
 
 /* =============================== Prototypes =============================== */
 
-gguf_ctx *gguf_init(const char *filename);
+gguf_ctx *gguf_open(const char *filename);
 gguf_ctx *gguf_create(const char *filename, int flags);
 int gguf_remap(gguf_ctx *ctx);
 void gguf_rewind(gguf_ctx *ctx);
-void gguf_end(gguf_ctx *ctx);
+void gguf_close(gguf_ctx *ctx);
 int gguf_get_key(gguf_ctx *ctx, gguf_key *key);
 int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor);
 const char *gguf_get_value_type_name(uint32_t type);
