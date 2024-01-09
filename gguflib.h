@@ -184,5 +184,6 @@ int gguf_append_tensor_data(gguf_ctx *ctx, void *tensor, uint64_t tensor_size);
 uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset);
 void gguf_skip_key_values_section(gguf_ctx *ctx);
 float *gguf_tensor_to_float(gguf_tensor *tensor);
+int16_t *gguf_tensor_to_f16(gguf_tensor *tensor);
 
 #endif
