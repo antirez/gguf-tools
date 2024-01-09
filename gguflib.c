@@ -428,14 +428,14 @@ void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int f
  *
  * On success the context with the file already loaded is returned,
  * otherwise NULL is returned. */
-gguf_ctx *gguf_create(const char *filename) {
+gguf_ctx *gguf_create_with_mode(const char *filename, const char* mode) {
     struct gguf_header hdr;
     memcpy(&hdr.magic,"GGUF",4);
     hdr.version = 3;
     hdr.tensor_count = 0;
     hdr.metadata_kv_count = 0;
 
-    FILE *fp = fopen(filename,"wx");
+    FILE *fp = fopen(filename,mode);
     if (fp == NULL) return NULL;
     if (fwrite(&hdr,1,sizeof(hdr),fp) != sizeof(hdr)) {
         fclose(fp);
@@ -444,6 +444,18 @@ gguf_ctx *gguf_create(const char *filename) {
     fclose(fp);
 
     return gguf_init(filename);
+}
+
+/* Same as gguf_create_with_mode, but with mode 'wx'.
+ * Fails if file already exists. */
+gguf_ctx *gguf_create(const char *filename) {
+    return gguf_create_with_mode(filename,"wx");
+}
+
+/* Same as gguf_create_with_mode, but with mode 'w'.
+ * Overwrites file it it already exists. */
+gguf_ctx *gguf_create_or_overwrite(const char *filename) {
+    return gguf_create_with_mode(filename,"w");
 }
 
 /* Low level API to append some key-value data to the GGUF file identified

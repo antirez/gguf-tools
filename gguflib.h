@@ -161,6 +161,7 @@ typedef struct {
 
 gguf_ctx *gguf_init(const char *filename);
 gguf_ctx *gguf_create(const char *filename);
+gguf_ctx *gguf_create_or_overwrite(const char *filename);
 int gguf_remap(gguf_ctx *ctx);
 void gguf_rewind(gguf_ctx *ctx);
 void gguf_end(gguf_ctx *ctx);
