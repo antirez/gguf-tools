@@ -778,6 +778,89 @@ void gguf_q2_k_to_float(void *weights_data, void *dst, uint64_t count, store_flo
     }
 }
 
+/* Q4_0 blocks dequantization to floats.
+ * 'dst' is supposed to have enough space for 'count' weights. */
+void gguf_q4_0_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+    float *f = dst;
+    struct gguf_tensor_type_features *tf =
+        gguf_get_tensor_type_features(GGUF_TYPE_Q4_0);
+
+    /* Very simple layout: |16 bit scale|32 x 4bit weights|
+     * Each weight is scale * (quantized_weight[0..31] - 8) */
+    uint8_t *block = weights_data;
+    uint64_t i = 0; // i-th weight to dequantize.
+    while(i < count) {
+        /* For each block get the scale and convert all the
+         * weights in the block. */
+        float scale = from_half(*((uint16_t*)block));
+        /* First 16 weights are in the lower bits */
+        for (uint32_t j = 0; j < 16; j++) {
+            uint8_t value = block[j+2]; // j+2 to skip the scale bytes.
+            value &= 0xf;  // lower bits
+            float weight = ((int8_t) value - 8) * scale;
+            if (store_callback)
+                store_callback(dst,i,weight);
+            else
+                f[i] = weight;
+            if (++i == count) break;
+        }
+        /* Last 16 weights are in the higher bits */
+        for (uint32_t j = 0; j < 16; j++) {
+            uint8_t value = block[j+2]; // j+2 to skip the scale bytes.
+            value >>= 4;  // higher bits
+            float weight = ((int8_t) value - 8) * scale;
+            if (store_callback)
+                store_callback(dst,i,weight);
+            else
+                f[i] = weight;
+            if (++i == count) break;
+        }
+        block += tf->bytes_per_block; // Go to the next block.
+    }
+}
+
+/* Q4_1 blocks dequantization to floats.
+ * 'dst' is supposed to have enough space for 'count' weights. */
+void gguf_q4_1_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+    float *f = dst;
+    struct gguf_tensor_type_features *tf =
+        gguf_get_tensor_type_features(GGUF_TYPE_Q4_1);
+
+    /* Very simple layout: |16 bit scale|16 bit bias|32 x 4bit weights|
+     * Each weight is scale * quantized_weight[0..31] + bias */
+    uint8_t *block = weights_data;
+    uint64_t i = 0; // i-th weight to dequantize.
+    while(i < count) {
+        /* For each block get the scale and convert all the
+         * weights in the block. */
+        float scale = from_half(*((uint16_t*)block));
+        float bias = from_half(*((uint16_t*)block+2));
+        /* First 16 weights are in the lower bits */
+        for (uint32_t j = 0; j < 16; j++) {
+            uint8_t value = block[j+4]; // j+2 to skip the scale and bias bytes.
+            value &= 0xf;  // lower bits
+            float weight = value * scale + bias;
+            if (store_callback)
+                store_callback(dst,i,weight);
+            else
+                f[i] = weight;
+            if (++i == count) break;
+        }
+        /* Last 16 weights are in the higher bits */
+        for (uint32_t j = 0; j < 16; j++) {
+            uint8_t value = block[j+4]; // j+2 to skip the scale and bias bytes.
+            value >>= 4;  // higher bits
+            float weight = value * scale + bias;
+            if (store_callback)
+                store_callback(dst,i,weight);
+            else
+                f[i] = weight;
+            if (++i == count) break;
+        }
+        block += tf->bytes_per_block; // Go to the next block.
+    }
+}
+
 /* FP16 blocks dequantization to floats.
  * 'y' is supposed to have enough space for 'count' weights. */
 void gguf_f16_to_float(void *weights_data, float *dst, uint64_t count, store_float_callback store_callback) {
@@ -814,6 +897,10 @@ float *gguf_tensor_to_float(gguf_tensor *tensor) {
         gguf_q6_k_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
     } else if (tensor->type == GGUF_TYPE_Q2_K) {
         gguf_q2_k_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
+    } else if (tensor->type == GGUF_TYPE_Q4_0) {
+        gguf_q4_0_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
+    } else if (tensor->type == GGUF_TYPE_Q4_1) {
+        gguf_q4_1_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
     } else {
         errno = EINVAL;
         return NULL;
@@ -839,6 +926,10 @@ int16_t *gguf_tensor_to_f16(gguf_tensor *tensor) {
         gguf_q6_k_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
     } else if (tensor->type == GGUF_TYPE_Q2_K) {
         gguf_q2_k_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q4_0) {
+        gguf_q4_0_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q4_1) {
+        gguf_q4_1_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
     } else {
         errno = EINVAL;
         return NULL;
