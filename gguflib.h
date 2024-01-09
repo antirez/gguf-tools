@@ -12,6 +12,10 @@
 
 /* ============================ Enums and structures ======================== */
 
+/* Flags that can be used in different functions with the same meaning. */
+#define GGUF_NONE           0           // No flags.
+#define GGUF_OVERWRITE      (1<<0)      // Overwrite the destination object.
+
 enum gguf_tensor_type {
     GGUF_TYPE_F32  = 0,
     GGUF_TYPE_F16  = 1,
@@ -160,7 +164,7 @@ typedef struct {
 /* =============================== Prototypes =============================== */
 
 gguf_ctx *gguf_init(const char *filename);
-gguf_ctx *gguf_create(const char *filename);
+gguf_ctx *gguf_create(const char *filename, int flags);
 int gguf_remap(gguf_ctx *ctx);
 void gguf_rewind(gguf_ctx *ctx);
 void gguf_end(gguf_ctx *ctx);

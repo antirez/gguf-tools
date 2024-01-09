@@ -428,14 +428,14 @@ void gguf_print_value(gguf_ctx *ctx, uint32_t type, union gguf_value *val, int f
  *
  * On success the context with the file already loaded is returned,
  * otherwise NULL is returned. */
-gguf_ctx *gguf_create(const char *filename) {
+gguf_ctx *gguf_create(const char *filename, int flags) {
     struct gguf_header hdr;
     memcpy(&hdr.magic,"GGUF",4);
     hdr.version = 3;
     hdr.tensor_count = 0;
     hdr.metadata_kv_count = 0;
 
-    FILE *fp = fopen(filename,"wx");
+    FILE *fp = fopen(filename, flags & GGUF_OVERWRITE ? "w" : "wx");
     if (fp == NULL) return NULL;
     if (fwrite(&hdr,1,sizeof(hdr),fp) != sizeof(hdr)) {
         fclose(fp);

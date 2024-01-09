@@ -196,7 +196,7 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
         exit(1);
     }
 
-    gguf_ctx *output = gguf_create(output_filename);
+    gguf_ctx *output = gguf_create(output_filename, GGUF_NONE);
     if (output == NULL) {
         perror("Opening the output file");
         exit(1);
