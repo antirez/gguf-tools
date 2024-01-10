@@ -834,7 +834,7 @@ void gguf_q4_1_to_float(void *weights_data, void *dst, uint64_t count, store_flo
         /* For each block get the scale and convert all the
          * weights in the block. */
         float scale = from_half(*((uint16_t*)block));
-        float bias = from_half(*((uint16_t*)block+2));
+        float bias = from_half(*((uint16_t*)block+1));
         /* First 16 weights are in the lower bits */
         for (uint32_t j = 0; j < 16; j++) {
             uint8_t value = block[j+4]; // j+2 to skip the scale and bias bytes.
