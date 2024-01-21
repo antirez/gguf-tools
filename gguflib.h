@@ -34,6 +34,10 @@ enum gguf_tensor_type {
     GGUF_TYPE_Q5_K = 13,
     GGUF_TYPE_Q6_K = 14,
     GGUF_TYPE_Q8_K = 15,
+    // IQ2 quants
+    GGML_TYPE_IQ2_XXS = 16,
+    GGML_TYPE_IQ2_XS  = 17,
+    // Integer quants
     GGUF_TYPE_I8,
     GGUF_TYPE_I16,
     GGUF_TYPE_I32,
