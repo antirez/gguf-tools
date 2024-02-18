@@ -902,6 +902,7 @@ float *gguf_tensor_to_float(gguf_tensor *tensor) {
     } else if (tensor->type == GGUF_TYPE_Q4_1) {
         gguf_q4_1_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
     } else {
+        free(f);
         errno = EINVAL;
         return NULL;
     }
@@ -931,6 +932,7 @@ int16_t *gguf_tensor_to_f16(gguf_tensor *tensor) {
     } else if (tensor->type == GGUF_TYPE_Q4_1) {
         gguf_q4_1_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
     } else {
+        free(f16);
         errno = EINVAL;
         return NULL;
     }
