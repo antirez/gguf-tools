@@ -152,8 +152,8 @@ typedef struct {
     uint8_t *data;  // Memory mapped data.
     uint64_t size;  // Total file size.
     struct gguf_header *header;     // GUFF file header info.
-    uint32_t left_kv;               // Number of key-value pairs yet to read.
-    uint32_t left_tensors;          // Number of tensors yet to read.
+    uint64_t left_kv;               // Number of key-value pairs yet to read.
+    uint64_t left_tensors;          // Number of tensors yet to read.
     uint64_t off;                   // Offset of the next item to parse.
     uint64_t data_off;              // Offset of tensor data section. This
                                     // is only set when all the kv/tensor header
