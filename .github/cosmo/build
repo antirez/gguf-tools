@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eux
+
+COSMO_DIR="/sc/cosmocc"
+
+# build x86_64
+X86_64_CC="/sc/cosmocc/bin/x86_64-unknown-cosmo-cc"
+mkdir -p /sc/cosmocc/x86_64
+make -j CC="$X86_64_CC"
+cp gguf-tools /sc/cosmocc/x86_64/gguf-tools
+make clean
+
+# build aarch64
+AARCH64_CC="/sc/cosmocc/bin/aarch64-unknown-cosmo-cc"
+mkdir -p /sc/cosmocc/aarch64
+make -j CC="$AARCH64_CC"
+cp gguf-tools /sc/cosmocc/aarch64/gguf-tools
+make clean
+
+# fat binary
+apefat () {
+    OUTPUT="$1"
+    OLDNAME_X86_64="$(basename -- "$2")"
+    OLDNAME_AARCH64="$(basename -- "$3")"
+    TARG_FOLD="$(dirname "$OUTPUT")"
+    "$COSMO_DIR/bin/apelink" -l "$COSMO_DIR/bin/ape-x86_64.elf" \
+        -l "$COSMO_DIR/bin/ape-aarch64.elf" \
+        -M "$COSMO_DIR/bin/ape-m1.c" \
+        -o "$OUTPUT" \
+        "$2" \
+        "$3"
+    cp "$2" "$TARG_FOLD/$OLDNAME_X86_64.x86_64"
+    cp "$3" "$TARG_FOLD/$OLDNAME_AARCH64.aarch64"
+}
+
+apefat /sc/cosmocc/gguf-tools.com /sc/cosmocc/x86_64/gguf-tools /sc/cosmocc/aarch64/gguf-tools
+cd /sc/cosmocc/
+zip gguf-tools.zip gguf-tools.com gguf-tools.x86_64 gguf-tools.aarch64
