@@ -22,8 +22,6 @@ jobs:
         run: |
           sudo mkdir -p /sc
           sudo chmod -R 0777 /sc
-      - name: setup Cosmopolitan Libc
-        run: bash ./.github/cosmo/setup
       - name: build APE binary of gguf-tools
         run: bash ./.github/cosmo/build
       - name: push binary to github
@@ -31,4 +29,4 @@ jobs:
         with:
           draft: true
           files: |
-            /sc/cosmocc/gguf-tools.zip
+            gguf-tools
