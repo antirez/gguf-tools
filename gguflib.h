@@ -27,16 +27,27 @@ enum gguf_tensor_type {
     GGUF_TYPE_Q5_1 = 7,
     GGUF_TYPE_Q8_0 = 8,
     GGUF_TYPE_Q8_1 = 9,
-    // k-quantizations
     GGUF_TYPE_Q2_K = 10,
     GGUF_TYPE_Q3_K = 11,
     GGUF_TYPE_Q4_K = 12,
     GGUF_TYPE_Q5_K = 13,
     GGUF_TYPE_Q6_K = 14,
     GGUF_TYPE_Q8_K = 15,
-    GGUF_TYPE_I8,
-    GGUF_TYPE_I16,
-    GGUF_TYPE_I32,
+    GGUF_TYPE_IQ2_XXS = 16,
+    GGUF_TYPE_IQ2_XS = 17,
+    GGUF_TYPE_IQ3_XXS = 18,
+    GGUF_TYPE_IQ1_S = 19,
+    GGUF_TYPE_IQ4_NL = 20,
+    GGUF_TYPE_IQ3_S = 21,
+    GGUF_TYPE_IQ2_S = 22,
+    GGUF_TYPE_IQ4_XS = 23,
+    GGUF_TYPE_I8 = 24,
+    GGUF_TYPE_I16 = 25,
+    GGUF_TYPE_I32 = 26,
+    GGUF_TYPE_I64 = 27,
+    GGUF_TYPE_F64 = 28,
+    GGUF_TYPE_IQ1_M = 29,
+    GGUF_TYPE_BF16 = 30,
     GGUF_TYPE_COUNT,
 };
 
@@ -185,5 +196,6 @@ uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset);
 void gguf_skip_key_values_section(gguf_ctx *ctx);
 float *gguf_tensor_to_float(gguf_tensor *tensor);
 int16_t *gguf_tensor_to_f16(gguf_tensor *tensor);
+int16_t *gguf_tensor_to_bf16(gguf_tensor *tensor);
 
 #endif

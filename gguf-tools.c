@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
+#include <inttypes.h>
 
 #include "gguflib.h"
 #include "sds.h"
@@ -143,7 +144,7 @@ int strmatch(const char *pattern, int patternLen,
 void gguf_tools_show(const char *filename) {
     gguf_ctx *ctx = gguf_open(filename);
     if (ctx == NULL) {
-        perror("Opening GGUF file");
+        perror(filename);
         exit(1);
     }
 
@@ -166,16 +167,16 @@ void gguf_tools_show(const char *filename) {
     gguf_tensor tensor;
     uint64_t params = 0;
     while (gguf_get_tensor(ctx,&tensor)) {
-        printf("%s tensor %.*s @%llu, %llu weights, dims ",
+        printf("%s tensor %.*s @%" PRIu64 ", %" PRIu64 " weights, dims ",
             gguf_get_tensor_type_name(tensor.type),
             (int)tensor.namelen,
             tensor.name,
             tensor.offset,
             tensor.num_weights);
         for (uint32_t j = 0; j < tensor.ndim; j++) {
-            printf("%s%llu",(j == 0) ? "[" : ",", tensor.dim[j]);
+            printf("%s%" PRIu64 "",(j == 0) ? "[" : ",", tensor.dim[j]);
         }
-        printf("], %llu bytes\n", tensor.bsize);
+        printf("], %" PRIu64 " bytes\n", tensor.bsize);
 
         params += tensor.num_weights;
     }
@@ -192,13 +193,13 @@ void gguf_tools_show(const char *filename) {
 void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, const char *output_filename) {
     gguf_ctx *mixtral = gguf_open(mixtral_filename);
     if (mixtral == NULL) {
-        perror("Opening Mixtral file");
+        perror(mixtral_filename);
         exit(1);
     }
 
     gguf_ctx *output = gguf_create(output_filename, GGUF_NONE);
     if (output == NULL) {
-        perror("Opening the output file");
+        perror(output_filename);
         exit(1);
     }
 
@@ -312,7 +313,7 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
         }
         tensor_off += tensors[j].orig_info.bsize;
     }
-    printf("Output file: after writing tensors info, file size is: %llu\n", output->size);
+    printf("Output file: after writing tensors info, file size is: %" PRIu64 "\n", output->size);
 
     /* Finally, append the tensors weights. */
     for (uint32_t j = 0; j < num_tensors; j++) {
@@ -333,7 +334,7 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
 void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_t count) {
     gguf_ctx *ctx = gguf_open(filename);
     if (ctx == NULL) {
-        perror("Opening GGUF file");
+        perror(filename);
         exit(1);
     }
 
@@ -424,8 +425,8 @@ int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
     float *weights1 = gguf_tensor_to_float(t1);
     float *weights2 = gguf_tensor_to_float(t2);
     if (weights1 == NULL || weights2 == NULL) {
-        if (weights1) free(weights1);
-        if (weights2) free(weights2);
+        free(weights1);
+        free(weights2);
         return 0;
     }
 
@@ -444,7 +445,7 @@ int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
     double avg_diff = tot_diff / t1->num_weights;
 
     /* Multiply by 75 to normalize the difference of a
-     * random varialbe between -N and +N to 0 - 100% */
+     * random variable between -N and +N to 0 - 100% */
     *diff = avg_diff / avg_mag * 75;
 
     free(weights1);
@@ -454,9 +455,14 @@ int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
 
 void gguf_tools_compare(const char *file1, const char *file2) {
     gguf_ctx *ctx1 = gguf_open(file1);
+    if (ctx1 == NULL) {
+        perror(file1);
+        exit(1);
+    }
+
     gguf_ctx *ctx2 = gguf_open(file2);
-    if (ctx1 == NULL || ctx2 == NULL) {
-        perror("Opening GGUF files");
+    if (ctx2 == NULL) {
+        perror(file2);
         exit(1);
     }
 

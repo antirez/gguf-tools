@@ -8,9 +8,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "gguflib.h"
 #include "fp16.h"
+#include "bf16.h"
 
 /* ============================ Low level functions ========================= */
 
@@ -43,9 +45,21 @@ struct gguf_tensor_type_features {
     {"q5_k", 256, 176},
     {"q6_k", 256, 210},
     {"q8_k", 256, 292},
+    {"iq2_xxs", 256, 66},
+    {"iq2_xs", 256, 74},
+    {"iq3_xxs", 256, 98},
+    {"iq1_s", 256, 110},
+    {"iq4_nl", 256, 50},
+    {"iq3_s", 256, 110},
+    {"iq2_s", 256, 82},
+    {"iq4_xs", 256, 136},
     {"i8", 1, 1},
     {"i16", 1, 2},
     {"i32", 1, 4},
+    {"i64", 1, 8},
+    {"f64", 1, 8},
+    {"iq1_m", 256, 56},
+    {"bf16", 1, 2},
 };
 
 /* Return the value type name given the type ID. */
@@ -101,8 +115,8 @@ gguf_ctx *gguf_open(const char *filename) {
     if (fd == -1) return NULL;
 
     /* Mapping successful. We can create our context object. */
-    gguf_ctx *ctx = malloc(sizeof(*ctx));
-    memset(ctx,0,sizeof(*ctx));
+    gguf_ctx *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) return NULL;
     ctx->fd = fd;
     ctx->alignment = 32; // Default alignment of GGUF files.
     ctx->data_off = 0;   // Set later.
@@ -363,8 +377,8 @@ void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *
     struct gguf_print_options *po = privdata;
     if (po && po->max_array_items && in_array > po->max_array_items) {
         if (in_array-1 == po->max_array_items)
-            printf("... %llu more items of %llu", array_len-in_array+1,
-                                                  array_len);
+            printf("... %" PRIu64 " more items of %" PRIu64 "",
+                   array_len-in_array+1, array_len);
         return;
     }
 
@@ -396,9 +410,9 @@ void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *
         case GGUF_VALUE_TYPE_STRING:
             printf("%.*s", (int)val->string.len, val->string.string); break;
         case GGUF_VALUE_TYPE_UINT64:
-            printf("%llu", val->uint64); break;
+            printf("%" PRIu64 "", val->uint64); break;
         case GGUF_VALUE_TYPE_INT64:
-            printf("%lld", val->int64); break;
+            printf("%" PRId64 "", val->int64); break;
         case GGUF_VALUE_TYPE_FLOAT64:
             printf("%lf", val->float64); break;
         default:
@@ -514,6 +528,12 @@ typedef void (*store_float_callback)(void *dst, uint64_t idx, float f);
 void gguf_store_f16_callback(void *dst, uint64_t idx, float f) {
     uint16_t *f16 = dst;
     f16[idx] = to_half(f);
+}
+
+/* Callback used to store BF16 when dequantizing. */
+void gguf_store_bf16_callback(void *dst, uint64_t idx, float f) {
+    uint16_t *f16 = dst;
+    f16[idx] = to_brain(f);
 }
 
 /* Q8_0 blocks dequantization to floats.
@@ -755,7 +775,7 @@ void gguf_q2_k_to_float(void *weights_data, void *dst, uint64_t count, store_flo
         float scale_of_scales = from_half(*((uint16_t*)(block+16+64)));
         float scale_of_mins = from_half(*((uint16_t*)(block+16+64+2)));
 
-        float scale, min;
+        float scale = 0, min = 0;
         int bn = 0; // Block number
         for (uint64_t cluster = 0; cluster < 2; cluster++) {
             for (uint64_t j = 0; j < 128; j++) {
@@ -863,12 +883,30 @@ void gguf_q4_1_to_float(void *weights_data, void *dst, uint64_t count, store_flo
 
 /* FP16 blocks dequantization to floats.
  * 'y' is supposed to have enough space for 'count' weights. */
-void gguf_f16_to_float(void *weights_data, float *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_f16_to_float(void *weights_data, void *dst, uint64_t count,
+                              store_float_callback store_callback) {
     float *f = dst;
     uint64_t i = 0; // i-th weight to dequantize.
     uint16_t *w16 = weights_data;
     while(i < count) {
         float weight = from_half(w16[i]);
+        if (store_callback)
+            store_callback(dst,i,weight);
+        else
+            f[i] = weight;
+        i++;
+    }
+}
+
+/* BF16 blocks dequantization to floats.
+ * 'y' is supposed to have enough space for 'count' weights. */
+static void gguf_bf16_to_float(void *weights_data, void *dst, uint64_t count,
+                               store_float_callback store_callback) {
+    float *f = dst;
+    uint64_t i = 0; // i-th weight to dequantize.
+    uint16_t *w16 = weights_data;
+    while(i < count) {
+        float weight = from_brain(w16[i]);
         if (store_callback)
             store_callback(dst,i,weight);
         else
@@ -885,10 +923,13 @@ void gguf_f16_to_float(void *weights_data, float *dst, uint64_t count, store_flo
  * NULL is returned as well, but errno is set to EINVAL. */
 float *gguf_tensor_to_float(gguf_tensor *tensor) {
     float *f = malloc(tensor->num_weights*sizeof(float));
+    if (!f) return NULL;
     if (tensor->type == GGUF_TYPE_F32) {
         memcpy(f, tensor->weights_data, tensor->num_weights*sizeof(float));
     } else if (tensor->type == GGUF_TYPE_F16) {
         gguf_f16_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
+    } else if (tensor->type == GGUF_TYPE_BF16) {
+        gguf_bf16_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
     } else if (tensor->type == GGUF_TYPE_Q8_0) {
         gguf_q8_0_to_float(tensor->weights_data, f, tensor->num_weights, NULL);
     } else if (tensor->type == GGUF_TYPE_Q4_K) {
@@ -913,12 +954,15 @@ float *gguf_tensor_to_float(gguf_tensor *tensor) {
  * an array of int16_t values. */
 int16_t *gguf_tensor_to_f16(gguf_tensor *tensor) {
     int16_t *f16 = malloc(tensor->num_weights*sizeof(int16_t));
+    if (!f16) return NULL;
     if (tensor->type == GGUF_TYPE_F32) {
         float *f = (float*)tensor->weights_data;
         for (uint64_t j = 0; j < tensor->num_weights; j++)
             f16[j] = to_half(f[j]);
     } else if (tensor->type == GGUF_TYPE_F16) {
         memcpy(f16, tensor->weights_data, tensor->num_weights*sizeof(int16_t));
+    } else if (tensor->type == GGUF_TYPE_BF16) {
+        gguf_bf16_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
     } else if (tensor->type == GGUF_TYPE_Q8_0) {
         gguf_q8_0_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
     } else if (tensor->type == GGUF_TYPE_Q4_K) {
@@ -931,6 +975,39 @@ int16_t *gguf_tensor_to_f16(gguf_tensor *tensor) {
         gguf_q4_0_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
     } else if (tensor->type == GGUF_TYPE_Q4_1) {
         gguf_q4_1_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_f16_callback);
+    } else {
+        free(f16);
+        errno = EINVAL;
+        return NULL;
+    }
+    return f16;
+}
+
+/* Same as gguf_tensor_to_float() but the result will be an bf16 tensor, that is
+ * an array of int16_t values. */
+int16_t *gguf_tensor_to_bf16(gguf_tensor *tensor) {
+    int16_t *f16 = malloc(tensor->num_weights*sizeof(int16_t));
+    if (!f16) return NULL;
+    if (tensor->type == GGUF_TYPE_F32) {
+        float *f = (float*)tensor->weights_data;
+        for (uint64_t j = 0; j < tensor->num_weights; j++)
+            f16[j] = to_half(f[j]);
+    } else if (tensor->type == GGUF_TYPE_F16) {
+        gguf_f16_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
+    } else if (tensor->type == GGUF_TYPE_BF16) {
+        memcpy(f16, tensor->weights_data, tensor->num_weights*sizeof(int16_t));
+    } else if (tensor->type == GGUF_TYPE_Q8_0) {
+        gguf_q8_0_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q4_K) {
+        gguf_q4_k_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q6_K) {
+        gguf_q6_k_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q2_K) {
+        gguf_q2_k_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q4_0) {
+        gguf_q4_0_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
+    } else if (tensor->type == GGUF_TYPE_Q4_1) {
+        gguf_q4_1_to_float(tensor->weights_data, f16, tensor->num_weights, gguf_store_bf16_callback);
     } else {
         free(f16);
         errno = EINVAL;
