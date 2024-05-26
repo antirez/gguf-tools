@@ -14,6 +14,7 @@
 /* Global options that can could be used for all the subcommands. */
 struct {
     int verbose;        // --verbose option
+    int diffable;       // --diffable option
 } Opt = {0};
 
 /* ========================== Utility functions  ============================ */
@@ -167,16 +168,20 @@ void gguf_tools_show(const char *filename) {
     gguf_tensor tensor;
     uint64_t params = 0;
     while (gguf_get_tensor(ctx,&tensor)) {
-        printf("%s tensor %.*s @%" PRIu64 ", %" PRIu64 " weights, dims ",
+        printf("%s tensor %.*s",
             gguf_get_tensor_type_name(tensor.type),
             (int)tensor.namelen,
-            tensor.name,
-            tensor.offset,
-            tensor.num_weights);
+            tensor.name);
+        if (!Opt.diffable)
+            printf(" @%" PRIu64, tensor.offset);
+        printf(", %" PRIu64 " weights, dims ", tensor.num_weights);
         for (uint32_t j = 0; j < tensor.ndim; j++) {
             printf("%s%" PRIu64 "",(j == 0) ? "[" : ",", tensor.dim[j]);
         }
-        printf("], %" PRIu64 " bytes\n", tensor.bsize);
+        printf("]");
+        if (!Opt.diffable)
+            printf(", %" PRIu64 " bytes", tensor.bsize);
+        printf("\n");
 
         params += tensor.num_weights;
     }
@@ -507,6 +512,7 @@ void gguf_tools_usage(const char *progname) {
 "  split-mixtral <ids...> mixtral.gguf out.gguf -- extract expert.\n"
 "Options:\n"
 "  --verbose       :With 'show', print full arrays (e.g. token lists)\n"
+"  --diffable      :Don't show tensor file offsets and sizes\n"
 "Example:\n"
 "  split-mixtral 65230776370407150546470161412165 mixtral.gguf out.gguf\n"
            , progname);
@@ -526,6 +532,11 @@ int main(int argc, char **argv) {
             argv[j] = NULL;
             argc--;
             Opt.verbose = 1;
+        }
+        if (!strcmp(argv[j],"--diffable")) {
+            argv[j] = NULL;
+            argc--;
+            Opt.diffable = 1;
         }
     }
 
