@@ -52,10 +52,6 @@ static inline float from_brain(uint16_t h) {
 
 /**
  * Converts float32 to brain16.
- *
- * This function is binary identical to AMD Zen4 VCVTNEPS2BF16.
- * Subnormals shall be flushed to zero, and NANs will be quiet.
- * This code should vectorize nicely if using modern compilers.
  */
 static inline uint16_t to_brain(float s) {
     uint16_t h;
@@ -66,10 +62,6 @@ static inline uint16_t to_brain(float s) {
     u.f = s;
     if ((u.i & 0x7fffffff) > 0x7f800000) { /* nan */
         h = (u.i >> 16) | 64; /* force to quiet */
-        return h;
-    }
-    if (!(u.i & 0x7f800000)) { /* subnormal */
-        h = (u.i & 0x80000000) >> 16; /* flush to zero */
         return h;
     }
     return (u.i + (0x7fff + ((u.i >> 16) & 1))) >> 16;
