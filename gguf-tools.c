@@ -11,6 +11,26 @@
 #include "sds.h"
 #include "fp16.h"
 
+#ifdef _WIN32
+#include <Windows.h>
+
+static void win_perror(const char* s) {
+    if (errno != 0) {
+        perror(s);
+        return;
+    }
+
+    char* msg;
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPSTR)&msg, 0, NULL);
+    fprintf(stderr, "%s: %s", s, msg);
+    LocalFree(msg);
+}
+
+#define perror win_perror
+#endif
+
 /* Global options that can could be used for all the subcommands. */
 struct {
     int verbose;        // --verbose option
@@ -19,7 +39,7 @@ struct {
 /* ========================== Utility functions  ============================ */
 
 /* Glob-style pattern matching. Return 1 on match, 0 otherwise. */
-int strmatch(const char *pattern, int patternLen,
+static int strmatch(const char *pattern, int patternLen,
              const char *string, int stringLen, int nocase)
 {
     while(patternLen && stringLen) {
@@ -141,7 +161,7 @@ int strmatch(const char *pattern, int patternLen,
 
 /* ========================== 'show' subcommand ============================= */
 
-void gguf_tools_show(const char *filename) {
+static void gguf_tools_show(const char *filename) {
     gguf_ctx *ctx = gguf_open(filename);
     if (ctx == NULL) {
         perror(filename);
@@ -190,7 +210,7 @@ void gguf_tools_show(const char *filename) {
 /* Read a Mixtral MoE model and creates a new non-MoE GGUF file based
  * on the weights of the experts with IDs in the array of 'experts_id'.
  * The array must contain 32 integers, one for each layer. */
-void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, const char *output_filename) {
+static void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, const char *output_filename) {
     gguf_ctx *mixtral = gguf_open(mixtral_filename);
     if (mixtral == NULL) {
         perror(mixtral_filename);
@@ -331,7 +351,7 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
 
 /* ====================== 'inspect-weights' subcommand ====================== */
 
-void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_t count) {
+static void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_t count) {
     gguf_ctx *ctx = gguf_open(filename);
     if (ctx == NULL) {
         perror(filename);
@@ -421,7 +441,7 @@ void gguf_tools_inspect_weights(const char *filename, const char *tname, uint64_
  *
  * Returns 1 on success, 0 if one or both the provided tensors can't be
  * dequantized. */
-int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
+static int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
     float *weights1 = gguf_tensor_to_float(t1);
     float *weights2 = gguf_tensor_to_float(t2);
     if (weights1 == NULL || weights2 == NULL) {
@@ -453,7 +473,7 @@ int tensors_avg_diff(gguf_tensor *t1, gguf_tensor *t2, double *diff) {
     return 1;
 }
 
-void gguf_tools_compare(const char *file1, const char *file2) {
+static void gguf_tools_compare(const char *file1, const char *file2) {
     gguf_ctx *ctx1 = gguf_open(file1);
     if (ctx1 == NULL) {
         perror(file1);
@@ -498,7 +518,7 @@ void gguf_tools_compare(const char *file1, const char *file2) {
 
 /* ======================= Main and CLI options parsing ===================== */
 
-void gguf_tools_usage(const char *progname) {
+static void gguf_tools_usage(const char *progname) {
     printf("Usage: %s <subcommand> [arguments...] [options...]\n"
 "Subcommands:\n"
 "  show <filename> -- show GGUF model keys and tensors.\n"
