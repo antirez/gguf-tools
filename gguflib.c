@@ -1,14 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#ifndef _WIN32
 #include <sys/mman.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <errno.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#endif
+#include <fcntl.h>
+#include <errno.h>
 #include <string.h>
 #include <assert.h>
 #include <inttypes.h>
+
+#ifdef _WIN32
+#include <Windows.h>
+
+typedef UINT_PTR ssize_t;
+#endif
 
 #include "gguflib.h"
 #include "fp16.h"
@@ -108,18 +116,34 @@ uint64_t gguf_value_len(uint32_t type, union gguf_value *val) {
 }
 
 /* =============================== GGUF file API ============================ */
-
 /* Open a GGUF file and return a parsing context. */
-gguf_ctx *gguf_open(const char *filename) {
-    int fd = open(filename,O_RDWR|O_APPEND);
+gguf_ctx*gguf_open(const char *filename) {
+#ifdef _WIN32
+    HANDLE fd = CreateFileA(filename, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (fd == INVALID_HANDLE_VALUE) return NULL;
+#else
+    int fd = open(filename, O_RDWR | O_APPEND);
     if (fd == -1) return NULL;
+#endif
 
     /* Mapping successful. We can create our context object. */
-    gguf_ctx *ctx = calloc(1, sizeof(*ctx));
+    gguf_ctx*ctx = calloc(1, sizeof(*ctx));
     if (!ctx) return NULL;
     ctx->fd = fd;
     ctx->alignment = 32; // Default alignment of GGUF files.
     ctx->data_off = 0;   // Set later.
+
+#ifdef _WIN32
+    /* We must create file mapping object under Windows. */
+    HANDLE mapping = CreateFileMappingA(fd, NULL, PAGE_READWRITE, 0, 0, NULL);
+    if (mapping == NULL) {
+        CloseHandle(fd);
+        free(ctx);
+        return 0;
+    }
+    ctx->mapping = mapping;
+#endif
+
     if (gguf_remap(ctx) == 0) {
         gguf_close(ctx);
         return NULL;
@@ -146,6 +170,7 @@ void gguf_rewind(gguf_ctx *ctx) {
  *
  * Return 1 on success, 0 on error. */
 int gguf_remap(gguf_ctx *ctx) {
+#ifndef _WIN32
     struct stat sb;
 
     /* Unmap if the file was already memory mapped. */
@@ -159,14 +184,34 @@ int gguf_remap(gguf_ctx *ctx) {
 
     /* Minimal sanity check... */
     if (sb.st_size < (signed)sizeof(struct gguf_header) ||
-        memcmp(mapped,"GGUF",4) != 0)
+        memcmp(mapped, "GGUF", 4) != 0)
     {
         errno = EINVAL;
         return 0;
     }
+    ctx->size = sb.st_size;
+#else
+    if (ctx->data) UnmapViewOfFile(ctx->data);
+
+    /* Get the size of the file. */
+    LARGE_INTEGER size;
+    if (!GetFileSizeEx(ctx->fd, &size)) return 0;
+
+    /* Map the file by the handle to the file mapping object. */
+    LPVOID mapped = MapViewOfFile(ctx->mapping, FILE_MAP_ALL_ACCESS, 0, 0, size.QuadPart);
+    if (mapped == NULL) return 0;
+
+    if (size.QuadPart < (signed)sizeof(struct gguf_header) ||
+        memcmp(mapped, "GGUF", 4) != 0)
+    {
+        errno = EINVAL;
+        return 0;
+    }
+    ctx->size = size.QuadPart;
+#endif
+
     ctx->data = mapped;
     ctx->header = mapped;
-    ctx->size = sb.st_size;
     return 1;
 }
 
@@ -174,8 +219,15 @@ int gguf_remap(gguf_ctx *ctx) {
  * and cleanup resources. */
 void gguf_close(gguf_ctx *ctx) {
     if (ctx == NULL) return;
+#ifndef _WIN32
     if (ctx->data) munmap(ctx->data,ctx->size);
     close(ctx->fd);
+#else
+    if (ctx->data) UnmapViewOfFile(ctx->data);
+    /* Don't forget to close the handle to the file mapping object to destory this kernel object. */
+    CloseHandle(ctx->mapping);
+    CloseHandle(ctx->fd);
+#endif
     free(ctx);
 }
 
@@ -222,7 +274,7 @@ uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset) {
  * all the key-values are consumed, in the context of the first call of
  * gguf_get_tensor(): this way we will be able to return tensor offsets
  * as absolute positions and pointers to the mmapped file. */
-void gguf_set_data_offset(gguf_ctx *ctx) {
+static void gguf_set_data_offset(gguf_ctx *ctx) {
     assert(ctx->left_kv == 0 && ctx->left_tensors == ctx->header->tensor_count);
 
     uint64_t offset = ctx->off;
@@ -373,7 +425,7 @@ struct gguf_print_options {
  * may be NULL if no options are provided.
  *
  * The function is designed to be used as a callback of gguf_do_with_value(). */
-void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *val, uint64_t in_array, uint64_t array_len) {
+static void gguf_print_value_callback(void *privdata, uint32_t type, union gguf_value *val, uint64_t in_array, uint64_t array_len) {
     struct gguf_print_options *po = privdata;
     if (po && po->max_array_items && in_array > po->max_array_items) {
         if (in_array-1 == po->max_array_items)
@@ -525,20 +577,20 @@ int gguf_append_tensor_data(gguf_ctx *ctx, void *tensor, uint64_t tensor_size) {
 typedef void (*store_float_callback)(void *dst, uint64_t idx, float f);
 
 /* Callback used to store F16 when dequantizing. */
-void gguf_store_f16_callback(void *dst, uint64_t idx, float f) {
+static void gguf_store_f16_callback(void *dst, uint64_t idx, float f) {
     uint16_t *f16 = dst;
     f16[idx] = to_half(f);
 }
 
 /* Callback used to store BF16 when dequantizing. */
-void gguf_store_bf16_callback(void *dst, uint64_t idx, float f) {
+static void gguf_store_bf16_callback(void *dst, uint64_t idx, float f) {
     uint16_t *f16 = dst;
     f16[idx] = to_brain(f);
 }
 
 /* Q8_0 blocks dequantization to floats.
  * 'dst' is supposed to have enough space for 'count' weights. */
-void gguf_q8_0_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_q8_0_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
     float *f = dst;
     struct gguf_tensor_type_features *tf =
         gguf_get_tensor_type_features(GGUF_TYPE_Q8_0);
@@ -565,7 +617,7 @@ void gguf_q8_0_to_float(void *weights_data, void *dst, uint64_t count, store_flo
 
 /* Q4_K blocks dequantization to floats.
  * 'y' is supposed to have enough space for 'count' weights. */
-void gguf_q4_k_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_q4_k_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
     float *f = dst;
     uint8_t *block = weights_data;
     uint64_t i = 0; // i-th weight to dequantize.
@@ -655,7 +707,7 @@ void gguf_q4_k_to_float(void *weights_data, void *dst, uint64_t count, store_flo
 
 /* Q6_K blocks dequantization to floats.
  * 'y' is supposed to have enough space for 'count' weights. */
-void gguf_q6_k_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_q6_k_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
     float *f = dst;
     uint8_t *block = weights_data;
     uint64_t i = 0; // i-th weight to dequantize.
@@ -735,7 +787,7 @@ void gguf_q6_k_to_float(void *weights_data, void *dst, uint64_t count, store_flo
 
 /* Q2_K blocks dequantization to floats.
  * 'y' is supposed to have enough space for 'count' weights. */
-void gguf_q2_k_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_q2_k_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
     float *f = dst;
     uint8_t *block = weights_data;
     uint64_t i = 0; // i-th weight to dequantize.
@@ -800,7 +852,7 @@ void gguf_q2_k_to_float(void *weights_data, void *dst, uint64_t count, store_flo
 
 /* Q4_0 blocks dequantization to floats.
  * 'dst' is supposed to have enough space for 'count' weights. */
-void gguf_q4_0_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_q4_0_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
     float *f = dst;
     struct gguf_tensor_type_features *tf =
         gguf_get_tensor_type_features(GGUF_TYPE_Q4_0);
@@ -841,7 +893,7 @@ void gguf_q4_0_to_float(void *weights_data, void *dst, uint64_t count, store_flo
 
 /* Q4_1 blocks dequantization to floats.
  * 'dst' is supposed to have enough space for 'count' weights. */
-void gguf_q4_1_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
+static void gguf_q4_1_to_float(void *weights_data, void *dst, uint64_t count, store_float_callback store_callback) {
     float *f = dst;
     struct gguf_tensor_type_features *tf =
         gguf_get_tensor_type_features(GGUF_TYPE_Q4_1);
