@@ -1,1 +1,6 @@
 gguf-tools
+out
+build
+.vs
+.vscode
+CMakeSettings.json
