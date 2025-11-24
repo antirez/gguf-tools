@@ -174,6 +174,10 @@ typedef struct {
 
 /* =============================== Prototypes =============================== */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 gguf_ctx *gguf_open(const char *filename);
 gguf_ctx *gguf_create(const char *filename, int flags);
 int gguf_remap(gguf_ctx *ctx);
@@ -197,5 +201,9 @@ void gguf_skip_key_values_section(gguf_ctx *ctx);
 float *gguf_tensor_to_float(gguf_tensor *tensor);
 int16_t *gguf_tensor_to_f16(gguf_tensor *tensor);
 int16_t *gguf_tensor_to_bf16(gguf_tensor *tensor);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
