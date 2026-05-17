@@ -272,7 +272,10 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     uint32_t *num_dim = (uint32_t*) (ctx->data+ctx->off);
     ctx->off += 4;  // Skip number of dimensions.
     tensor->ndim = *num_dim;
-    assert(tensor->ndim <= GGUF_TENSOR_MAX_DIM);
+    if (tensor->ndim > GGUF_TENSOR_MAX_DIM) {
+        tensor->name = NULL;
+        return 0;
+    }
 
     /* Read the dimentions: all the unused dimensions are set to 1. */
     tensor->num_weights = 1;
