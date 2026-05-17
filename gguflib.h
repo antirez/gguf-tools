@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+
 /* ============================ Enums and structures ======================== */
 
 /* Flags that can be used in different functions with the same meaning. */
@@ -110,6 +111,11 @@ union gguf_value {
     double float64;
     uint8_t boolval;
     struct gguf_string string;
+
+#ifdef _MSC_VER
+#pragma pack(push, 1)
+#define __attribute__(x)
+#endif
     struct {
         // Any value type is valid, including arrays.
         uint32_t type;
@@ -117,6 +123,10 @@ union gguf_value {
         uint64_t len;
         // The array of values follow...
     } __attribute__((packed)) array;
+#ifdef _MSC_VER
+#pragma pack(pop)
+#undef __attribute__
+#endif
 };
 
 // Header
@@ -159,7 +169,12 @@ typedef struct {
 
 /* The context you get after opening a GGUF file with gguf_init(). */
 typedef struct {
+#ifdef _WIN32
+	void* fd;
+    void* mapping;
+#else
     int fd;
+#endif
     uint8_t *data;  // Memory mapped data.
     uint64_t size;  // Total file size.
     struct gguf_header *header;     // GUFF file header info.
