@@ -272,7 +272,15 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     uint32_t *num_dim = (uint32_t*) (ctx->data+ctx->off);
     ctx->off += 4;  // Skip number of dimensions.
     tensor->ndim = *num_dim;
-    assert(tensor->ndim <= GGUF_TENSOR_MAX_DIM);
+    /* Reject tensors declaring more dimensions than the fixed-size dim[] array
+     * can hold. The previous assert() is compiled out under -DNDEBUG (the usual
+     * release build), which left an out-of-bounds write into tensor->dim[] for
+     * an attacker-controlled ndim read from the file. Returning 0 cleanly stops
+     * iteration instead. */
+    if (tensor->ndim > GGUF_TENSOR_MAX_DIM) {
+        tensor->name = NULL;
+        return 0;
+    }
 
     /* Read the dimentions: all the unused dimensions are set to 1. */
     tensor->num_weights = 1;
