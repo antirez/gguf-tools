@@ -185,7 +185,11 @@ void gguf_close(gguf_ctx *ctx) {
 int gguf_get_key(gguf_ctx *ctx, gguf_key *key) {
     if (ctx->left_kv == 0) return 0;
     ctx->left_kv--;
+    /* Bound the length prefix, key name and type tag against the mapped file
+     * size before dereferencing these attacker-controlled offsets. */
+    if (ctx->off + 8 > ctx->size) return 0;
     struct gguf_string *str = (struct gguf_string*) (ctx->data+ctx->off);
+    if (str->len > ctx->size || ctx->off + str->len + 12 > ctx->size) return 0;
     key->namelen = str->len;
     key->name = str->string;
     uint32_t *type = (uint32_t*) (ctx->data+ctx->off+8+str->len);
@@ -215,6 +219,7 @@ void gguf_skip_key_values_section(gguf_ctx *ctx) {
 /* Given an offset or a length, returns the padding needed to align it
  * to ctx->alignment. */
 uint64_t gguf_get_alignment_padding(uint64_t alignment, uint64_t offset) {
+    if (alignment == 0) return 0; // A malformed general.alignment=0 would divide by zero.
     return (alignment - (offset % alignment)) % alignment;
 }
 
@@ -227,10 +232,16 @@ void gguf_set_data_offset(gguf_ctx *ctx) {
 
     uint64_t offset = ctx->off;
     for (uint32_t j = 0; j < ctx->left_tensors; j++) {
+        /* Bound every field against the mapped file size: a crafted name
+         * length or dimension count must not walk the offset past the mmap. */
+        if (offset + 8 > ctx->size) break;
         struct gguf_string *str = (struct gguf_string*) (ctx->data+offset);
+        if (str->len > ctx->size || offset + str->len + 12 > ctx->size) break;
         offset += 8+str->len;   // Skip prefixed len + string
         uint32_t *num_dim = (uint32_t*)(ctx->data+offset);
         offset += 4;            // Skip num dimentions.
+        if (*num_dim > GGUF_TENSOR_MAX_DIM) break;
+        if (offset + (uint64_t)(*num_dim)*8 + 12 > ctx->size) break;
         offset += 8*(*num_dim); // Skip dimensions.
         offset += 4;            // Skip tensor type.
         offset += 8;            // Skip tensor offset.
@@ -265,14 +276,21 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     if (ctx->data_off == 0) gguf_set_data_offset(ctx);
 
     ctx->left_tensors--;
+    /* Bound the tensor name and dimension count against the mapped file. */
+    if (ctx->off + 8 > ctx->size) return 0;
     struct gguf_string *str = (struct gguf_string*) (ctx->data+ctx->off);
+    if (str->len > ctx->size || ctx->off + str->len + 12 > ctx->size) return 0;
     ctx->off += 8+str->len; // Skip prefixed len + string.
     tensor->namelen = str->len;
     tensor->name = str->string;
     uint32_t *num_dim = (uint32_t*) (ctx->data+ctx->off);
     ctx->off += 4;  // Skip number of dimensions.
     tensor->ndim = *num_dim;
-    assert(tensor->ndim <= GGUF_TENSOR_MAX_DIM);
+    /* Reject an out-of-range dimension count instead of asserting: the assert
+     * is compiled out under -DNDEBUG, leaving an out-of-bounds write to
+     * tensor->dim[]. Then bound the dimension reads against the file. */
+    if (tensor->ndim > GGUF_TENSOR_MAX_DIM) return 0;
+    if (ctx->off + (uint64_t)tensor->ndim*8 + 12 > ctx->size) return 0;
 
     /* Read the dimentions: all the unused dimensions are set to 1. */
     tensor->num_weights = 1;
@@ -281,7 +299,9 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
             uint64_t *dim = (uint64_t*) (ctx->data+ctx->off);
             ctx->off += 8; // Skip dimension size.
             tensor->dim[j] = *dim;
-            tensor->num_weights *= *dim;
+            // Overflow-checked: a crafted dimension must not wrap num_weights.
+            if (__builtin_mul_overflow(tensor->num_weights, *dim, &tensor->num_weights))
+                return 0;
         } else {
             tensor->dim[j] = 1;
         }
