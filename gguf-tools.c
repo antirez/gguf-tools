@@ -255,7 +255,19 @@ void gguf_tools_split_mixtral(int *experts_id, const char *mixtral_filename, con
      * in the output model. */
     gguf_tensor tensor_info;
     while (gguf_get_tensor(mixtral,&tensor_info)) {
-        assert(num_tensors < max_tensors);
+        /* Grow the array instead of asserting: the assert() is compiled out
+         * under -DNDEBUG (the usual release build), which left a heap
+         * out-of-bounds write into tensors[] for a source model declaring more
+         * than max_tensors tensors (an attacker-controlled count in the file).
+         * Growing also lets a legitimate model with more tensors work. */
+        if (num_tensors == max_tensors) {
+            max_tensors *= 2;
+            tensors = realloc(tensors, sizeof(struct tensor_to_copy)*max_tensors);
+            if (tensors == NULL) {
+                perror("Reallocating tensors info array");
+                exit(1);
+            }
+        }
 
         char tn[1024]; // Tensor name as null terminated string.
         snprintf(tn,sizeof(tn),"%.*s",(int)tensor_info.namelen, tensor_info.name);
