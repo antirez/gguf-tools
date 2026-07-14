@@ -824,6 +824,12 @@ void gguf_q4_0_to_float(void *weights_data, void *dst, uint64_t count, store_flo
                 f[i] = weight;
             if (++i == count) break;
         }
+        /* Stop before the upper-nibble loop if we already emitted 'count'
+         * weights in the lower-nibble loop: that loop's own (++i == count)
+         * break only exits itself, and the check below can never fire again
+         * once i == count, so without this the upper loop would write up to
+         * 16 floats past the end of 'dst'. */
+        if (i == count) break;
         /* Last 16 weights are in the higher bits */
         for (uint32_t j = 0; j < 16; j++) {
             uint8_t value = block[j+2]; // j+2 to skip the scale bytes.
@@ -866,6 +872,10 @@ void gguf_q4_1_to_float(void *weights_data, void *dst, uint64_t count, store_flo
                 f[i] = weight;
             if (++i == count) break;
         }
+        /* Stop before the upper-nibble loop if we already emitted 'count'
+         * weights: as in gguf_q4_0_to_float, the lower loop's break only exits
+         * itself, so without this the upper loop would write past 'dst'. */
+        if (i == count) break;
         /* Last 16 weights are in the higher bits */
         for (uint32_t j = 0; j < 16; j++) {
             uint8_t value = block[j+4]; // j+2 to skip the scale and bias bytes.
