@@ -295,7 +295,6 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     ctx->off += 8;  // Skip tensor offset.
 
     tensor->offset = ctx->data_off + *offset;
-    tensor->weights_data = ctx->data + tensor->offset;
 
     /* To accurately calculate the bytes used by this tensor on the GGUF
      * file, we need to take into account that quantization methods store
@@ -308,6 +307,22 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
     tf = gguf_get_tensor_type_features(tensor->type);
     uint64_t weights_padding = gguf_get_alignment_padding(tf->items_per_block,tensor->num_weights);
     tensor->bsize = ((tensor->num_weights+weights_padding) / tf->items_per_block) * tf->bytes_per_block;
+
+    /* Bound the tensor data region against the mapped file BEFORE forming the
+     * data pointer. The offset comes straight from the file, so a crafted
+     * value can place weights_data (or its bsize-byte extent) outside the
+     * mapping; any later read of the weights (dequantization, inspect-tensor,
+     * compare) would then be an out-of-bounds read. Checks are overflow-safe:
+     * *offset and the resulting absolute offset must both be within ctx->size,
+     * and the extent is verified with a subtraction that cannot underflow. */
+    if (*offset > ctx->size ||
+        tensor->offset > ctx->size ||
+        tensor->bsize > ctx->size - tensor->offset)
+    {
+        return 0;
+    }
+
+    tensor->weights_data = ctx->data + tensor->offset;
     return 1;
 }
 
