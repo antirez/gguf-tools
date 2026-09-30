@@ -306,6 +306,7 @@ int gguf_get_tensor(gguf_ctx *ctx, gguf_tensor *tensor) {
      * multiply by the block size to obtain the final total size. */
     struct gguf_tensor_type_features *tf;
     tf = gguf_get_tensor_type_features(tensor->type);
+    if (tf->items_per_block == 0) return 0; // deprecated/removed types (q4_2, q4_3) have no block size
     uint64_t weights_padding = gguf_get_alignment_padding(tf->items_per_block,tensor->num_weights);
     tensor->bsize = ((tensor->num_weights+weights_padding) / tf->items_per_block) * tf->bytes_per_block;
     return 1;
