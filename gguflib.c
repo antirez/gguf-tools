@@ -641,7 +641,7 @@ void gguf_q4_k_to_float(void *weights_data, void *dst, uint64_t count, store_flo
             /* Second set: lower bits. */
             for (uint32_t j = 0; j < 32; j++) {
                 uint8_t w = block[j] >> 4;
-                float weight = w * scale - min;
+                float weight = w * scales[b+1] - mins[b+1];
                 if (store_callback)
                     store_callback(dst,i,weight);
                 else
